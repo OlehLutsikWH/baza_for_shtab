@@ -28,3 +28,9 @@ RLS-політики й Storage (етап 5), інтерфейс (етапи 3�
 Картка авто відкривається як `/base/car/?id=АВТО-001` (static export не підтримує динамічні маршрути без generateStaticParams).
 Фінанси приховані для не-керівників на рівні UI **і** запитів (`base_finance` читається лише якщо `is_head()`); справжній захист — RLS (етап 5).
 Потрібно TypeScript 5.x (Next 15 не підтримує TypeScript 7).
+
+## Етап 4: зведення, швидке введення, експорт
+
+Нові файли для копіювання: `src/app/base/page.tsx`, `src/app/base/quick/`, `src/components/base/{Dashboard,QuickEntry}.tsx`, `src/lib/base/{dashboard,csv}.ts`. Навігація — у `BaseShell.tsx` (у «Штабі» її замінить власне меню).
+Припущення (підтвердити з Олегом): додавати роботи/запчастини можуть лише керівники; експорт — CSV (`;`, BOM, захист від формул), xlsx не робився.
+Для RLS (етап 5): INSERT у `base_jobs`/`base_parts` — тільки `is_head()`; `base_finance` — SELECT тільки `is_head()`.

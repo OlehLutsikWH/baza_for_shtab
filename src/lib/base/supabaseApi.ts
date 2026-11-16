@@ -1,7 +1,7 @@
 // Реалізація BaseApi поверх supabase-js. Права забезпечує RLS у базі, а не цей код:
 // тут лише запити. Перевіряється на живій базі під час інтеграції (див. INTEGRATION.md).
 import type { SupabaseClient } from '@supabase/supabase-js';
-import type { BaseApi, Role, StatusPatch, Vehicle, VehicleDetail, VehicleSummary, Job, Part, FinanceItem, DocumentItem } from './types';
+import type { NewJob, NewPart, BaseApi, Role, StatusPatch, Vehicle, VehicleDetail, VehicleSummary, Job, Part, FinanceItem, DocumentItem } from './types';
 
 function check<T>(res: { data: T | null; error: { message: string } | null }, what: string): T {
   if (res.error) throw new Error(`${what}: ${res.error.message}`);
@@ -47,6 +47,20 @@ export function createSupabaseApi(sb: SupabaseClient): BaseApi {
         documents: check(docs, 'Документи') as DocumentItem[],
         finance: fin ? (check(fin, 'Фінанси') as FinanceItem[]) : null,
       };
+    },
+    async listFinance() {
+      if ((await role()) !== 'head') return null;
+      return check(await sb.from('base_finance').select('*').order('spent_on', { ascending: false, nullsFirst: false }), 'Фінанси') as FinanceItem[];
+    },
+    async addJob(i: NewJob): Promise<Job> {
+      const r = await sb.from('base_jobs').insert({ status: 'Заплановано', ...i }).select('*').single();
+      if (r.error) throw new Error(`Додавання роботи: ${r.error.message}`);
+      return { ...(r.data as Job), duration_days: null };
+    },
+    async addPart(i: NewPart): Promise<Part> {
+      const r = await sb.from('base_parts').insert({ status: 'Замовлено', ...i }).select('*').single();
+      if (r.error) throw new Error(`Додавання запчастини: ${r.error.message}`);
+      return r.data as Part;
     },
     async updateVehicleStatus(id, patch: StatusPatch): Promise<Vehicle> {
       const r = await sb.from('base_vehicles').update(patch).eq('id', id).select('*').single();

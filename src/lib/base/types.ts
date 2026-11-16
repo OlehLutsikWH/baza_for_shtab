@@ -39,10 +39,18 @@ export interface VehicleDetail {
 
 export interface StatusPatch { status?: string; blocker?: string | null; next_step?: string | null; responsible?: string | null }
 
+export interface NewJob { vehicle_id: string; description: string; executor?: string | null; location?: string | null; status?: string; notes?: string | null }
+export interface NewPart { vehicle_id: string; name: string; qty: number; supplier?: string | null; status?: string; notes?: string | null }
+
 export interface BaseApi {
   role(): Promise<Role>;
   statuses(): Promise<string[]>;
   listVehicles(): Promise<VehicleSummary[]>;
   getVehicleDetail(id: string): Promise<VehicleDetail | null>;
   updateVehicleStatus(id: string, patch: StatusPatch): Promise<Vehicle>;
+  /** Усі фінансові записи; null для не-керівників. */
+  listFinance(): Promise<FinanceItem[] | null>;
+  /** Запис роботи/запчастини — лише керівники (припущення, див. README). */
+  addJob(input: NewJob): Promise<Job>;
+  addPart(input: NewPart): Promise<Part>;
 }

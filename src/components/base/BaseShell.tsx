@@ -18,6 +18,9 @@ function Inner({ children }: { children: ReactNode }) {
           <Link href="/base/cars/" className="base-brand">СТО БАЗА · Облік авто</Link>
           {demo && <span className="base-demo" role="note">Демо-режим: вигадані дані{demoRole === 'member' ? ' · вигляд для члена команди' : ''}</span>}
         </header>
+        <nav className="base-nav" aria-label="Розділи">
+          <Link href="/base/">Зведення</Link><Link href="/base/cars/">Авто</Link><Link href="/base/quick/">Швидке введення</Link>
+        </nav>
         <main className="base-main">{children}</main>
       </div>
     </BaseApiProvider>

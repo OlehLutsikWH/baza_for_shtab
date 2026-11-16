@@ -1,2 +1,2 @@
-import { redirect } from 'next/navigation';
-export default function BaseIndex() { redirect('/base/cars/'); }
+import { Dashboard } from '../../components/base/Dashboard';
+export default function BaseIndex() { return <Dashboard />; }
