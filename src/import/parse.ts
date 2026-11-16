@@ -31,7 +31,7 @@ export interface Parsed {
 
 type Cell = ExcelJS.CellValue;
 
-function isObj(v: Cell): v is Record<string, any> { return v !== null && typeof v === 'object' && !(v instanceof Date); }
+function isObj(v: unknown): v is Record<string, any> { return v !== null && typeof v === 'object' && !(v instanceof Date); }
 
 export function cellText(v: Cell): string | null {
   if (v === null || v === undefined) return null;
@@ -50,7 +50,8 @@ export function cellText(v: Cell): string | null {
 
 export function cellLink(v: Cell): LegacyLink | null {
   if (!isObj(v)) return null;
-  const url = typeof v.hyperlink === 'string' ? v.hyperlink : null;
+  const h = (v as Record<string, any>).hyperlink;
+  const url = typeof h === 'string' ? h : null;
   if (url) return { field: '', url, text: cellText(v) ?? undefined };
   return null;
 }

@@ -18,3 +18,13 @@ RLS-політики й Storage (етап 5), інтерфейс (етапи 3�
 - не-керівник не бачить `base_finance` і view `base_debts_by_person`, `base_spend_by_vehicle`;
 - запис у `base_*` дозволений лише `is_head()`;
 - виконати `npm test` локально: тести не залежать від бази «Штабу».
+
+
+## Етап 3: інтерфейс (список авто + картка)
+
+Копіювати в «Штаб»: `src/app/base/` (layout, cars, car, base.css), `src/components/base/`, `src/lib/base/`, `supabase/base_001_schema.sql`, `base_002_views.sql`.
+НЕ копіювати: `supabase/base_000_standalone_stubs.sql`, `src/app/layout.tsx`, `src/app/page.tsx`, `next.config.mjs`, `tsconfig.json` (у «Штабі» свої).
+Єдине місце, залежне від «Штабу»: `src/lib/base/host.ts` (клієнт Supabase та ролі). Змінні `NEXT_PUBLIC_SUPABASE_URL/ANON_KEY` — якщо не задані, модуль працює в демо-режимі з вигаданими даними (`?as=member` — вигляд учасника).
+Картка авто відкривається як `/base/car/?id=АВТО-001` (static export не підтримує динамічні маршрути без generateStaticParams).
+Фінанси приховані для не-керівників на рівні UI **і** запитів (`base_finance` читається лише якщо `is_head()`); справжній захист — RLS (етап 5).
+Потрібно TypeScript 5.x (Next 15 не підтримує TypeScript 7).
