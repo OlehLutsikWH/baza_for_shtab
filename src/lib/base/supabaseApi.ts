@@ -52,6 +52,11 @@ export function createSupabaseApi(sb: SupabaseClient): BaseApi {
       if ((await role()) !== 'head') return null;
       return check(await sb.from('base_finance').select('*').order('spent_on', { ascending: false, nullsFirst: false }), 'Фінанси') as FinanceItem[];
     },
+    async signedUrl(path: string) {
+      const r = await sb.storage.from('base-files').createSignedUrl(path, 300);
+      if (r.error || !r.data) throw new Error(`Файл: ${r.error?.message ?? 'немає доступу'}`);
+      return r.data.signedUrl;
+    },
     async addJob(i: NewJob): Promise<Job> {
       const r = await sb.from('base_jobs').insert({ status: 'Заплановано', ...i }).select('*').single();
       if (r.error) throw new Error(`Додавання роботи: ${r.error.message}`);

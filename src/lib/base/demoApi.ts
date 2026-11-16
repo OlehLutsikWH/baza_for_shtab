@@ -24,6 +24,7 @@ export function createDemoApi(role: Role = 'head', now: () => Date = () => new D
       };
     },
     async listFinance() { return role === 'head' ? [...d.finance] : null; },
+    async signedUrl(path: string) { return `#demo-file:${encodeURIComponent(path)}`; },
     async addJob(i: NewJob): Promise<Job> {
       if (role !== 'head') throw new Error('Додавати записи можуть лише керівники');
       if (!d.vehicles.some(v => v.id === i.vehicle_id)) throw new Error('Авто не знайдено');

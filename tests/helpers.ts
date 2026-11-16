@@ -3,7 +3,7 @@ import { PGlite } from '@electric-sql/pglite';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
-const FILES = ['base_000_standalone_stubs.sql', 'base_001_schema.sql', 'base_002_views.sql'];
+const FILES = ['base_000_standalone_stubs.sql', 'base_001_schema.sql', 'base_002_views.sql', 'base_003_rls.sql'];
 
 export async function freshDb(): Promise<PGlite> {
   const db = new PGlite();

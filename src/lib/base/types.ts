@@ -51,6 +51,8 @@ export interface BaseApi {
   /** Усі фінансові записи; null для не-керівників. */
   listFinance(): Promise<FinanceItem[] | null>;
   /** Запис роботи/запчастини — лише керівники (припущення, див. README). */
+  /** Тимчасове посилання на файл у bucket base-files (діє за політиками Storage). */
+  signedUrl(path: string): Promise<string>;
   addJob(input: NewJob): Promise<Job>;
   addPart(input: NewPart): Promise<Part>;
 }

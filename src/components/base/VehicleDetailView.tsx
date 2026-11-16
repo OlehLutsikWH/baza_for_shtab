@@ -16,6 +16,16 @@ function Links({ links }: { links: LegacyLink[] | null }) {
   ))}</>;
 }
 
+function FileLink({ path }: { path: string }) {
+  const api = useBaseApi();
+  const [err, setErr] = useState<string | null>(null);
+  async function open() {
+    try { setErr(null); window.open(await api.signedUrl(path), '_blank', 'noopener,noreferrer'); }
+    catch (e) { setErr(e instanceof Error ? e.message : String(e)); }
+  }
+  return <><button type="button" className="base-linkbtn" onClick={open}>{path.split('/').pop()}</button>{err && <span role="alert" className="base-error"> {err}</span>}</>;
+}
+
 function Table({ head, children, empty }: { head: string[]; children: ReactNode[]; empty: string }) {
   if (children.length === 0) return <p className="base-empty">{empty}</p>;
   return (
@@ -141,7 +151,7 @@ export function VehicleDetailView({ id, now: nowProp }: { id: string | null; now
           <Table head={['Тип', 'Дата', 'Файл', 'Примітки']} empty="Документів ще немає.">
             {documents.map(d => <tr key={d.id}>
               <td>{d.doc_type ?? '—'}</td><td>{formatDate(d.doc_date)}</td>
-              <td>{d.storage_path ?? <Links links={d.legacy_links} />}</td><td>{d.notes ?? ''}</td></tr>)}
+              <td>{d.storage_path ? <FileLink path={d.storage_path} /> : <Links links={d.legacy_links} />}</td><td>{d.notes ?? ''}</td></tr>)}
           </Table>
         )}
       </div>

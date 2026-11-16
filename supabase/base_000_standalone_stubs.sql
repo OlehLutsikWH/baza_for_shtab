@@ -34,3 +34,15 @@ $$;
 
 grant usage on schema public, auth to authenticated;
 grant execute on function auth.uid(), public.is_member(), public.is_head() to authenticated;
+
+-- Мінімальна імітація Supabase Storage для перевірки політик (у «Штабі» схема storage є).
+create schema if not exists storage;
+create table if not exists storage.buckets (id text primary key, name text not null, public boolean default false);
+create table if not exists storage.objects (id bigint generated always as identity primary key, bucket_id text references storage.buckets(id), name text not null);
+alter table storage.objects enable row level security;
+grant usage on schema storage to authenticated;
+grant select, insert, update, delete on storage.objects to authenticated;
+do $$ begin
+  if not exists (select 1 from pg_roles where rolname = 'anon') then create role anon nologin; end if;
+end $$;
+grant usage on schema public to anon;

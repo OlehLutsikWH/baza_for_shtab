@@ -204,7 +204,7 @@ create table base_audit_log (
 );
 create index on base_audit_log (table_name, row_id);
 
-create function base_audit() returns trigger language plpgsql security definer as $$
+create function base_audit() returns trigger language plpgsql security definer set search_path = public as $$
 declare rid text;
 begin
   rid := coalesce(to_jsonb(NEW) ->> 'id', to_jsonb(OLD) ->> 'id');
