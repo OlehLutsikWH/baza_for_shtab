@@ -7,7 +7,9 @@
 //  • щойно ремонт завершено (з'явилась чернетка звіту) — повідомлення з посиланням на звіт;
 //  • будь-кому з команди — «що з хайлюксом?», «021», /cars, /problems, /summary;
 //  • керівникам — зміна статусу кнопками, /reports, /team, /add, /remove; нові люди просяться через /start,
-//    керівник підключає одним натисканням.
+//    керівник підключає одним натисканням;
+//  • фото: надіслали фото (чи альбом) — бот питає «До якого авто?» (з підписом «021 до» — одразу пропонує
+//    папку) і кладе в папку машини на Google Drive через PhotoSink. Документи не приймає: «Фото» бачить уся команда.
 // Фінанси бачать лише керівники. VIN, номери, особи, постачальники в повідомлення не потрапляють.
 
 // Збігається з FINAL_STATUSES і STALE_AFTER_DAYS у src/lib/base/format.ts (перевіряє тест).
@@ -39,11 +41,26 @@ export interface BotStore {
   removeUser(telegramId: number): Promise<void>;
   wasSent(kind: string, ref: string): Promise<boolean>;
   markSent(kind: string, ref: string): Promise<void>;
+  /** атомарна позначка «вперше»: true — якщо такої ще не було (і тепер є); false — хтось уже встиг */
+  claim(kind: string, ref: string): Promise<boolean>;
+  // ----- фото через бота (base_bot_uploads) -----
+  /** записати отримане фото; null — це повідомлення вже записане (Telegram повторив оновлення) */
+  addUpload(u: NewUpload): Promise<BotUpload | null>;
+  /** фото й решта фото того самого альбому (той самий чат і media_group_id), за зростанням id */
+  uploadGroup(id: number): Promise<BotUpload[]>;
+  /** атомарно взяти в роботу: pending (або saving, що зависло раніше за staleBefore) → saving; повертає взяті id */
+  claimUploads(ids: number[], staleBefore: string): Promise<number[]>;
+  /** оновити фото; onlyIfStatus — лише ті, що досі в цьому стані */
+  updateUploads(ids: number[], patch: UploadPatch, onlyIfStatus?: UploadStatus): Promise<void>;
 }
 export type Button = { text: string; data: string } | { text: string; url: string };
 export interface BotTelegram {
   send(chatId: number, html: string, buttons?: Button[][]): Promise<void>;
+  /** замінити текст і кнопки вже надісланого повідомлення (питання → результат) */
+  edit(chatId: number, messageId: number, html: string, buttons?: Button[][]): Promise<void>;
   answerCallback(callbackId: string, text?: string): Promise<void>;
+  /** завантажити файл, надісланий боту (Telegram віддає ботам до 20 МБ) */
+  download(fileId: string): Promise<Uint8Array>;
 }
 export interface BotConfig {
   /** адреса «Штабу» для посилань, напр. https://shtab.tykho.org; порожньо — без посилань */
@@ -51,11 +68,40 @@ export interface BotConfig {
   /** Telegram ID керівників, які завжди мають доступ і нагадування (напр. Олег) */
   headIds: number[];
   timeZone?: string; digestHour?: number; partsDays?: number; paymentsDays?: number;
+  /** куди класти фото (папка авто на Google Drive); без нього бот фото не приймає */
+  photoSink?: PhotoSink;
+  /** хто може надсилати фото: усі підключені (за замовчуванням) або лише керівники */
+  photoUploaders?: 'all' | 'heads';
+}
+
+// ----- фото -----
+export type UploadKind = 'before' | 'after' | 'other';
+export type UploadStatus = 'pending' | 'saving' | 'saved' | 'cancelled';
+export interface NewUpload {
+  telegram_id: number; chat_id: number; message_id: number; media_group_id: string | null;
+  file_id: string; file_name: string | null; mime: string; file_size: number | null; caption: string | null; sent_at: string;
+}
+export interface BotUpload extends NewUpload {
+  id: number; status: UploadStatus; vehicle_id: string | null; kind: UploadKind | null;
+  drive_file_id: string | null; error: string | null; updated_at: string;
+}
+export interface UploadPatch {
+  status?: UploadStatus; vehicle_id?: string | null; kind?: UploadKind | null; drive_file_id?: string | null; error?: string | null;
+}
+export interface SavedPhoto { fileId: string; folderName: string; folderUrl: string }
+/** Сховище фото: Apps Script від імені власника папки «Фото» або сервісний акаунт на спільному диску. */
+export interface PhotoSink {
+  save(p: { vehicleId: string; vehicleName: string; kind: UploadKind; fileName: string; mime: string; bytes: Uint8Array }): Promise<SavedPhoto>;
 }
 
 // мінімальні типи оновлень Telegram
 export interface TgUser { id: number; first_name?: string; last_name?: string; username?: string }
-export interface TgMessage { message_id: number; chat: { id: number; type?: string }; from?: TgUser; text?: string; photo?: unknown; document?: unknown }
+export interface TgPhotoSize { file_id: string; file_unique_id?: string; width: number; height: number; file_size?: number }
+export interface TgDocument { file_id: string; file_unique_id?: string; file_name?: string; mime_type?: string; file_size?: number }
+export interface TgMessage {
+  message_id: number; chat: { id: number; type?: string }; from?: TgUser; date?: number; text?: string; caption?: string;
+  media_group_id?: string; photo?: TgPhotoSize[]; document?: TgDocument; video?: unknown; video_note?: unknown; animation?: unknown;
+}
 export interface TgUpdate { update_id?: number; message?: TgMessage; callback_query?: { id: string; from: TgUser; data?: string; message?: TgMessage } }
 
 // ---------- форматування ----------
@@ -124,6 +170,7 @@ const LETTERS = /^[a-zа-яіїєґ]+$/;
 function tokenMatch(q: string, n: string) {
   if (q === n) return true;
   if (q.length < 3 || n.length < 3) return false;
+  if (/^\d+$/.test(q) || /^\d+$/.test(n)) return false; // числа — лише точно: «2008» (рік) не «200» (Land Cruiser 200)
   if (n.startsWith(q) || q.startsWith(n)) return true;
   // українські відмінки: «білим» ~ «білий», «бусом» ~ «бус»; лише для слів з самих літер (не «авто-021»)
   if (!LETTERS.test(q) || !LETTERS.test(n) || !/[а-яіїєґ]/.test(q)) return false;
@@ -135,9 +182,11 @@ export function findVehicles(text: string, list: BotVehicle[]): BotVehicle[] {
   // «021», «21», «авто 21», «АВТО-021» — пошук за номером
   const numberish = (t: string) => /^\d{1,4}$/.test(t) || /^авто-?\d{1,4}$/.test(t);
   const nums = toks.map(t => t[0]).filter(numberish);
-  if (nums.length === 1 && toks.every(t => numberish(t[0]))) {
+  if (nums.length === 1) {
+    // номер важить більше за слова («021 білий»); якщо такого номера немає (напр. рік «2008») — шукаємо за назвою
     const id = `АВТО-${/(\d{1,4})$/.exec(nums[0])![1].padStart(3, '0')}`;
-    return list.filter(v => v.id === id);
+    const hit = list.filter(v => v.id === id);
+    if (hit.length || toks.every(t => numberish(t[0]))) return hit;
   }
   const scored = list.map(v => {
     const name = [...words(v.name), ...words(v.id)];
@@ -147,6 +196,67 @@ export function findVehicles(text: string, list: BotVehicle[]): BotVehicle[] {
   const best = Math.max(0, ...scored.map(x => x.score));
   return scored.filter(x => x.score === best).map(x => x.v);
 }
+
+// ---------- фото: тип файлу, підпис, назва на Drive ----------
+/** Підпапки в папці авто (так само їх розпізнає вкладка «Фото» і звіт для донорів: «до»/«після»). */
+export const KIND_FOLDER: Record<'before' | 'after', string> = { before: 'До ремонту', after: 'Після ремонту' };
+const KIND_CODE: Record<UploadKind, string> = { before: 'b', after: 'a', other: 'n' };
+const CODE_KIND: Record<string, UploadKind> = { b: 'before', a: 'after', n: 'other' };
+const kindLabel = (k: UploadKind) => (k === 'other' ? 'просто в папку машини' : `у «${KIND_FOLDER[k]}»`);
+const kindShort = (k: UploadKind) => (k === 'before' ? 'до ремонту' : k === 'after' ? 'після ремонту' : 'без підпапки');
+/** Більші файли Telegram ботам не віддає. */
+export const MAX_PHOTO_BYTES = 20 * 1024 * 1024;
+/** «Зберігаю…», що зависло довше (функцію перервали), можна запустити знову. */
+const STALE_SAVING_MS = 5 * 60_000;
+const MIME_EXT: Record<string, string> = { 'image/jpeg': 'jpg', 'image/png': 'png', 'image/heic': 'heic', 'image/heif': 'heif', 'image/webp': 'webp', 'image/gif': 'gif', 'image/tiff': 'tif', 'image/bmp': 'bmp' };
+const EXT_MIME: Record<string, string> = { jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png', heic: 'image/heic', heif: 'image/heif', webp: 'image/webp', gif: 'image/gif', tif: 'image/tiff', tiff: 'image/tiff', bmp: 'image/bmp' };
+const extOf = (name: string | null | undefined) => /\.([a-z0-9]{2,5})$/i.exec(name ?? '')?.[1].toLowerCase();
+
+export type Media =
+  | { ok: true; file_id: string; mime: string; file_name: string | null; file_size: number | null }
+  | { ok: false; reason: 'not-image' | 'too-big' | 'video' };
+/** Що в повідомленні: фото (найбільший розмір), зображення файлом — так; інші документи, відео — ні. */
+export function mediaOf(m: TgMessage): Media | null {
+  if (m.photo?.length) {
+    const best = [...m.photo].sort((a, b) => b.width * b.height - a.width * a.height || (b.file_size ?? 0) - (a.file_size ?? 0))[0];
+    return { ok: true, file_id: best.file_id, mime: 'image/jpeg', file_name: null, file_size: best.file_size ?? null };
+  }
+  if (m.document) {
+    const d = m.document;
+    let mime = (d.mime_type ?? '').toLowerCase();
+    const ext = extOf(d.file_name);
+    if ((!mime || mime === 'application/octet-stream') && ext && EXT_MIME[ext]) mime = EXT_MIME[ext];
+    if (!mime.startsWith('image/') || mime === 'image/svg+xml') return { ok: false, reason: 'not-image' };
+    if ((d.file_size ?? 0) > MAX_PHOTO_BYTES) return { ok: false, reason: 'too-big' };
+    return { ok: true, file_id: d.file_id, mime, file_name: d.file_name ?? null, file_size: d.file_size ?? null };
+  }
+  if (m.video || m.video_note || m.animation) return { ok: false, reason: 'video' };
+  return null;
+}
+
+/** Підпис до фото: «021 до», «хайлюкс після ремонту», «до ремонту 25». «до» посеред фрази («фото до хайлюкса») —
+ *  прийменник, а не «до ремонту». */
+export function parseCaption(caption: string, list: BotVehicle[]): { vehicles: BotVehicle[]; kind: UploadKind | null } {
+  const ws = words(caption);
+  let kind: UploadKind | null = null;
+  const rest: string[] = [];
+  for (let i = 0; i < ws.length; i++) {
+    const w = ws[i], next = ws[i + 1];
+    const repairNext = !!next && /^ремонт/.test(next);
+    if (/^(після|пiсля|после|after)$/.test(w)) { kind = 'after'; if (repairNext) i++; continue; }
+    if (w === 'before' || (w === 'до' && (next === undefined || repairNext))) { kind = 'before'; if (repairNext) i++; continue; }
+    rest.push(w);
+  }
+  return { vehicles: rest.length ? findVehicles(rest.join(' '), list) : [], kind };
+}
+
+/** Назва файлу на Drive: дата надсилання (за Києвом), номер авто, номер запису — повтор не створює копію. */
+export function uploadFileName(u: Pick<BotUpload, 'id' | 'mime' | 'file_name' | 'sent_at'>, vehicleId: string, timeZone = 'Europe/Kyiv') {
+  const fromName = extOf(u.file_name);
+  const ext = MIME_EXT[u.mime] ?? (fromName && EXT_MIME[fromName] ? fromName : 'jpg');
+  return `${localParts(Date.parse(u.sent_at), timeZone).date}_${vehicleId}_${u.id}.${ext}`;
+}
+const errText = (e: unknown) => (e instanceof Error ? e.message : String(e)).slice(0, 200);
 
 // ---------- тексти ----------
 function card(v: BotVehicle, now: number, role: Role, moneyLine: string | null) {
@@ -175,6 +285,12 @@ const HELP_HEAD = [
   '— /team — хто підключений; /add ID роль ім\'я; /remove ID.',
   'Щодня о 9:00 надсилаю зведення: блокери, що давно не оновлювалось, запчастини, звіти, неоплачене.',
 ];
+const HELP_PHOTOS = '— надішліть фото (можна альбомом) — спитаю, до якого авто, і покладу в папку машини на Google Drive; з підписом «021 до» чи «хайлюкс після» — одразу запропоную папку.';
+const MSG_NOT_IMAGE = 'Документи через бота не зберігаю — лише фото. Папку «Фото» бачить уся команда, а в рахунках і актах бувають суми та особисті дані.';
+const MSG_TOO_BIG = 'Файл більший за 20 МБ — Telegram не віддає ботам такі файли. Надішліть його як фото (не файлом) або покладіть у папку авто на Google Drive вручну.';
+const MSG_VIDEO = 'Відео я не зберігаю — лише фото. Відео покладіть у папку авто на Google Drive вручну.';
+const MSG_NO_SINK = 'Фото через бота ще не налаштовані. Поки що кладіть їх у папку авто на Google Drive.';
+const MSG_HEADS_ONLY = 'Фото через бота приймає лише координатор. Покладіть фото в папку авто на Google Drive або передайте координатору.';
 
 // ---------- бот ----------
 export function createBaseBot(store: BotStore, tg: BotTelegram, cfg: BotConfig, clock: () => number = () => Date.now()) {
@@ -182,6 +298,10 @@ export function createBaseBot(store: BotStore, tg: BotTelegram, cfg: BotConfig, 
   const digestHour = cfg.digestHour ?? 9, partsDays = cfg.partsDays ?? 7, paymentsDays = cfg.paymentsDays ?? 14;
   const link = (path: string) => (cfg.appUrl ? `${cfg.appUrl.replace(/\/$/, '')}${path}` : null);
   const carUrl = (id: string, tab?: string) => link(`/base/car/?id=${encodeURIComponent(id)}${tab ? `&tab=${tab}` : ''}`);
+  const sink = cfg.photoSink;
+  const canUpload = (u: BotUser) => !!sink && (cfg.photoUploaders !== 'heads' || u.role === 'head');
+  /** відповідь на натискання кнопки; помилка (запит застарів) не має зривати решту дії */
+  const answer = (id: string, text?: string) => tg.answerCallback(id, text).catch(() => undefined);
 
   async function userOf(id: number): Promise<BotUser | null> {
     const list = await store.users();
@@ -297,7 +417,7 @@ export function createBaseBot(store: BotStore, tg: BotTelegram, cfg: BotConfig, 
     const chat = m.chat.id;
     const now = clock();
     if (c === 'start' || c === 'help' || lower === 'допомога') {
-      return tg.send(chat, [...HELP_MEMBER, ...(u.role === 'head' ? ['', ...HELP_HEAD] : [])].join('\n'));
+      return tg.send(chat, [...HELP_MEMBER, ...(canUpload(u) ? [HELP_PHOTOS] : []), ...(u.role === 'head' ? ['', ...HELP_HEAD] : [])].join('\n'));
     }
     if (c === 'cars' || ['авто', 'машини', 'список'].includes(lower)) {
       const vs = await store.vehicles();
@@ -367,11 +487,160 @@ export function createBaseBot(store: BotStore, tg: BotTelegram, cfg: BotConfig, 
     return tg.send(chat, `Не знайшов машину «${esc(raw.slice(0, 60))}». Напишіть номер, наприклад 021, або /cars — список.`);
   }
 
+  // ----- фото -----
+  type CB = NonNullable<TgUpdate['callback_query']>;
+  type Hint = { vehicles: BotVehicle[]; kind: UploadKind | null };
+  const carBtn = (uid: number, v: BotVehicle, k: UploadKind | null, suffix = ''): Button =>
+    ({ text: `${v.id} ${v.name}${suffix}`.slice(0, 60), data: k ? `us:${uid}:${v.id}:${KIND_CODE[k]}` : `uv:${uid}:${v.id}` });
+  const kindRows = (uid: number, v: BotVehicle): Button[][] => [
+    [{ text: KIND_FOLDER.before, data: `us:${uid}:${v.id}:b` }, { text: KIND_FOLDER.after, data: `us:${uid}:${v.id}:a` }],
+    [{ text: 'Просто в папку машини', data: `us:${uid}:${v.id}:n` }],
+  ];
+  const otherRow = (uid: number, label = 'Інше авто'): Button[] => [{ text: label, data: `ua:${uid}` }, { text: 'Скасувати', data: `ux:${uid}` }];
+  const isOpen = (g: BotUpload, now: number) => g.status === 'pending' || (g.status === 'saving' && Date.parse(g.updated_at) < now - STALE_SAVING_MS);
+  const closedReason = (group: BotUpload[]) =>
+    group.some(g => g.status === 'saving') ? 'Уже зберігаю…' : group.every(g => g.status === 'cancelled') ? 'Ці фото скасовано' : 'Ці фото вже збережено';
+
+  /** питання «До якого авто?»; followUp — уточнення, коли підпис альбому прийшов не з першим фото */
+  async function askVehicle(chat: number, up: BotUpload, caption: string | null, hint: Hint | null, list: BotVehicle[], followUp: boolean) {
+    const uid = up.id, album = !!up.media_group_id;
+    const cap = caption ? `«${esc(caption.slice(0, 80))}»` : '';
+    const head = followUp ? `Підпис до цього альбому: ${cap}.` : `Отримав ${album ? 'фото (альбом)' : 'фото'}.${cap ? ` Підпис: ${cap}.` : ''}`;
+    const vs = hint?.vehicles ?? [], k = hint?.kind ?? null;
+    if (vs.length === 1) {
+      const v = vs[0];
+      if (k) return tg.send(chat, `${head}\nЗберегти в <b>${esc(v.name)}</b> (${esc(v.id)}), ${kindLabel(k)}?`,
+        [[{ text: `Зберегти: ${v.id} · ${kindShort(k)}`, data: `us:${uid}:${v.id}:${KIND_CODE[k]}` }], otherRow(uid)]);
+      return tg.send(chat, `${head}\n<b>${esc(v.name)}</b> (${esc(v.id)}). У яку папку?`, [...kindRows(uid, v), otherRow(uid)]);
+    }
+    const into = k ? ` Збережу ${kindLabel(k)}.` : '';
+    if (vs.length > 1) {
+      return tg.send(chat, `${head}\nПідходить кілька машин. Яка?${into}`, [...vs.slice(0, 8).map(v => [carBtn(uid, v, k)]), otherRow(uid, 'Усі машини…')]);
+    }
+    // нічого не впізнали: машини, що нещодавно оновлювались, + повний список
+    const recent = list.filter(v => !isFinal(v)).sort((a, b) => Date.parse(b.status_updated_at) - Date.parse(a.status_updated_at)).slice(0, 6);
+    return tg.send(chat, [
+      `${head}${caption ? ' Номера чи назви машини в підписі не знайшов.' : ''}`,
+      `До якого авто ${album ? 'ці фото' : 'це фото'}?${into}`,
+      'Порада: з підписом «021 до» чи «хайлюкс після» я одразу запропоную потрібну папку.',
+    ].join('\n'), [...recent.map(v => [carBtn(uid, v, k)]), otherRow(uid, 'Усі машини…')]);
+  }
+
+  async function onMedia(m: TgMessage, u: BotUser, media: Media) {
+    const chat = m.chat.id;
+    // відмова на альбом — одна, а не на кожне фото чи файл альбому
+    const refuse = async (html: string) => {
+      if (m.media_group_id && !(await store.claim('album-reply', `${chat}:${m.media_group_id}`))) return;
+      await tg.send(chat, html);
+    };
+    if (!media.ok) {
+      if (media.reason === 'not-image') {
+        return refuse(`${MSG_NOT_IMAGE} ${u.role === 'head' ? 'Документ додайте в картку авто в «Штабі».' : 'Документ передайте координатору або додайте в картку авто в «Штабі».'}`);
+      }
+      return refuse(media.reason === 'too-big' ? MSG_TOO_BIG : MSG_VIDEO);
+    }
+    if (!sink) return refuse(MSG_NO_SINK);
+    if (!canUpload(u)) return refuse(MSG_HEADS_ONLY);
+    const caption = m.caption?.trim() || null;
+    const up = await store.addUpload({
+      telegram_id: u.telegram_id, chat_id: chat, message_id: m.message_id, media_group_id: m.media_group_id ?? null,
+      file_id: media.file_id, file_name: media.file_name, mime: media.mime, file_size: media.file_size, caption,
+      sent_at: new Date((m.date ?? Math.floor(clock() / 1000)) * 1000).toISOString(),
+    });
+    if (!up) return; // Telegram повторив те саме оновлення — питання вже поставлено
+    // альбом приходить окремими повідомленнями: питаємо один раз; кнопки діють на весь альбом
+    if (up.media_group_id && !(await store.claim('upload-ask', `${chat}:${up.media_group_id}`))) {
+      if (!caption) return;
+      const list = await store.vehicles();
+      const hint = parseCaption(caption, list);
+      if (hint.vehicles.length) await askVehicle(chat, up, caption, hint, list, true);
+      return;
+    }
+    const list = await store.vehicles();
+    await askVehicle(chat, up, caption, caption ? parseCaption(caption, list) : null, list, false);
+  }
+
+  /** замінити повідомлення з кнопками (питання → результат); якщо не вийшло — надіслати нове */
+  async function replace(q: CB, html: string, buttons?: Button[][]) {
+    if (q.message) {
+      try { await tg.edit(q.message.chat.id, q.message.message_id, html, buttons); return; } catch { /* надто старе — нижче нове */ }
+    }
+    await tg.send(q.message?.chat.id ?? q.from.id, html, buttons);
+  }
+
+  async function onUploadCallback(q: CB, u: BotUser, kind: string, parts: string[]) {
+    if (!canUpload(u)) return answer(q.id, sink ? 'Фото через бота приймає лише координатор' : 'Збереження фото не налаштоване');
+    const uid = Number(parts[1]);
+    const chat = q.message?.chat.id ?? q.from.id;
+    const group = Number.isSafeInteger(uid) && uid > 0 ? await store.uploadGroup(uid) : [];
+    // кнопки діють лише у своєму чаті: чужі фото так не зберегти й не скасувати
+    if (!group.length || group.some(g => g.chat_id !== chat)) return answer(q.id, 'Ці фото не знайдено');
+    const now = clock();
+    if (kind === 'ux') {
+      const open = group.filter(g => g.status === 'pending').map(g => g.id);
+      if (!open.length) return answer(q.id, closedReason(group));
+      await store.updateUploads(open, { status: 'cancelled' }, 'pending');
+      await answer(q.id, 'Скасовано');
+      return replace(q, `Скасовано: ${open.length} фото не збережено.`);
+    }
+    if (!group.some(g => isOpen(g, now))) return answer(q.id, closedReason(group));
+    const vs = await store.vehicles();
+    if (kind === 'ua') {
+      const list = vs.filter(v => !isFinal(v) || daysSince(v.status_updated_at, now) <= 30)
+        .sort((a, b) => Number(isFinal(a)) - Number(isFinal(b)) || a.id.localeCompare(b.id));
+      const shown = list.slice(0, 40);
+      await answer(q.id);
+      return replace(q, [
+        `До якого авто? Машини в роботі${list.some(isFinal) ? ' і завершені за останні 30 днів' : ''}:`,
+        ...(list.length > shown.length ? [`Показую ${shown.length} з ${list.length}. Немає потрібної — надішліть фото ще раз з номером у підписі, напр. «021».`] : []),
+      ].join('\n'), [...shown.map(v => [carBtn(uid, v, null, isFinal(v) ? ' · завершено' : '')]), [{ text: 'Скасувати', data: `ux:${uid}` }]]);
+    }
+    const v = vs.find(x => x.id === parts[2]);
+    if (!v) return answer(q.id, 'Цієї машини вже немає в обліку');
+    if (kind === 'uv') {
+      await answer(q.id);
+      return replace(q, `<b>${esc(v.name)}</b> (${esc(v.id)}). У яку папку?`, [...kindRows(uid, v), otherRow(uid)]);
+    }
+    // us — зберегти
+    const k = CODE_KIND[parts[3] ?? ''];
+    if (!k) return answer(q.id, 'Ця кнопка вже не діє');
+    const todo = group.filter(g => isOpen(g, now)).map(g => g.id);
+    const claimed = new Set(await store.claimUploads(todo, new Date(now - STALE_SAVING_MS).toISOString()));
+    if (!claimed.size) return answer(q.id, 'Уже зберігаю…');
+    await answer(q.id, 'Зберігаю…');
+    let savedTo: SavedPhoto | null = null;
+    const errors: string[] = [];
+    for (const g of group) {
+      if (!claimed.has(g.id)) continue;
+      try {
+        const bytes = await tg.download(g.file_id);
+        const r = await sink!.save({ vehicleId: v.id, vehicleName: v.name, kind: k, fileName: uploadFileName(g, v.id, tz), mime: g.mime, bytes });
+        await store.updateUploads([g.id], { status: 'saved', vehicle_id: v.id, kind: k, drive_file_id: r.fileId, error: null });
+        savedTo = r;
+      } catch (e) {
+        errors.push(errText(e));
+        await store.updateUploads([g.id], { status: 'pending', error: errText(e) }).catch(() => undefined);
+      }
+    }
+    const after = await store.uploadGroup(uid);
+    const total = after.filter(g => g.status !== 'cancelled').length;
+    const done = after.filter(g => g.status === 'saved').length;
+    const where = savedTo ? ` → «${esc(savedTo.folderName)}»` : '';
+    const photosUrl = carUrl(v.id, 'photos');
+    const links: Button[][] = [...(savedTo ? [[{ text: 'Відкрити папку на Drive', url: savedTo.folderUrl }]] : []), ...(photosUrl ? [[{ text: 'Фото в картці авто', url: photosUrl }]] : [])];
+    if (!errors.length) return replace(q, `Збережено ${done} фото${where}.`, links);
+    const retry: Button[] = [{ text: 'Спробувати ще раз', data: `us:${uid}:${v.id}:${KIND_CODE[k]}` }];
+    if (done) return replace(q, `Збережено ${done} з ${total} фото${where}. Не вдалося ${errors.length}: ${esc(errors[0])}`, [retry, ...links]);
+    return replace(q, `Не вдалося зберегти ${errors.length} фото: ${esc(errors[0])}`, [retry, [{ text: 'Скасувати', data: `ux:${uid}` }]]);
+  }
+
   async function onCallback(q: NonNullable<TgUpdate['callback_query']>) {
     const u = await userOf(q.from.id);
     const chat = q.message?.chat.id ?? q.from.id;
     if (!u) return tg.answerCallback(q.id, 'Вас ще не підключено до бота');
-    const [kind, a, ...rest] = (q.data ?? '').split(':');
+    const parts = (q.data ?? '').split(':');
+    if (['us', 'uv', 'ua', 'ux'].includes(parts[0])) return onUploadCallback(q, u, parts[0], parts);
+    const [kind, a, ...rest] = parts;
     const b = rest.join(':');
     const vs = await store.vehicles();
     const v = vs.find(x => x.id === a);
@@ -420,10 +689,8 @@ export function createBaseBot(store: BotStore, tg: BotTelegram, cfg: BotConfig, 
     if (m.chat.type && m.chat.type !== 'private') return false; // лише особисті чати: у групах не відповідаємо
     const u = await userOf(m.from.id);
     if (!u) { await onUnknown(m, m.from); return true; }
-    if (m.photo || m.document) {
-      await tg.send(m.chat.id, 'Фото й файли я поки не приймаю — це наступний крок. Зараз їх можна покласти в папку авто на Google Drive.');
-      return true;
-    }
+    const media = mediaOf(m);
+    if (media) { await onMedia(m, u, media); return true; }
     if (typeof m.text === 'string') { await onText(m, u); return true; }
     return false;
   }

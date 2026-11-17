@@ -10,7 +10,8 @@
 // починається з номера авто: «АВТО-021 Toyota Hilux (білий)». Фото — прямо в ній або в її підпапках
 // (назва підпапки повертається як group, напр. «До ремонту»).
 
-export interface ServiceAccount { client_email: string; private_key: string; token_uri?: string }
+import { createDrive, createGoogleAuth, dq, FOLDER_MIME, SCOPE_READ, type ServiceAccount } from '../_shared/google-drive.ts';
+export type { ServiceAccount } from '../_shared/google-drive.ts';
 export type AuthResult = 'ok' | 'unauthorized' | 'forbidden';
 
 export interface DriveConfig {
@@ -34,28 +35,15 @@ export interface DrivePhoto {
   id: string; name: string; mimeType: string; takenAt: string | null; group: string | null; thumb: string; full: string;
 }
 
-const DRIVE = 'https://www.googleapis.com/drive/v3/files';
-const SCOPE = 'https://www.googleapis.com/auth/drive.readonly';
-const FOLDER = 'application/vnd.google-apps.folder';
 export const THUMB_W = 480, FULL_W = 1600;
-const MAX_PHOTOS = 500;
 const VEHICLE_ID = /^[A-ZА-ЯІЇЄҐ]{2,10}-\d{1,5}$/u;
 const FILE_ID = /^[A-Za-z0-9_-]{10,200}$/;
 
-// ---------- base64url і криптографія (Web Crypto: є і в Deno, і в Node 20+) ----------
 const enc = new TextEncoder();
-function b64url(data: ArrayBuffer | Uint8Array | string): string {
-  const bytes = typeof data === 'string' ? enc.encode(data) : data instanceof Uint8Array ? data : new Uint8Array(data);
+function b64url(data: ArrayBuffer): string {
   let bin = '';
-  for (const b of bytes) bin += String.fromCharCode(b);
+  for (const b of new Uint8Array(data)) bin += String.fromCharCode(b);
   return btoa(bin).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
-}
-function pemToDer(pem: string): ArrayBuffer {
-  const body = pem.replace(/-----(BEGIN|END) [^-]+-----/g, '').replace(/\s+/g, '');
-  const bin = atob(body);
-  const out = new Uint8Array(bin.length);
-  for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
-  return out.buffer;
 }
 async function hmac(secret: string, msg: string): Promise<string> {
   const key = await crypto.subtle.importKey('raw', enc.encode(secret), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
@@ -78,7 +66,8 @@ export async function signImageUrl(cfg: Pick<DriveConfig, 'urlSecret' | 'publicB
 
 // ---------- обробник ----------
 export function createHandler(cfg: DriveConfig) {
-  let token: { value: string; exp: number } | null = null;
+  const token = createGoogleAuth(cfg.serviceAccount, SCOPE_READ, cfg.fetch, cfg.now);
+  const drive = createDrive(token, cfg.fetch);
   const cors = {
     'Access-Control-Allow-Origin': cfg.allowedOrigin ?? '*',
     'Access-Control-Allow-Headers': 'authorization, apikey, content-type, x-client-info',
@@ -88,62 +77,14 @@ export function createHandler(cfg: DriveConfig) {
     new Response(JSON.stringify(body), { status, headers: { ...cors, 'Content-Type': 'application/json; charset=utf-8' } });
   const fail = (status: number, error: string) => json(status, { error });
 
-  async function accessToken(): Promise<string> {
-    if (token && token.exp - 60_000 > cfg.now()) return token.value;
-    const sa = cfg.serviceAccount;
-    const aud = sa.token_uri ?? 'https://oauth2.googleapis.com/token';
-    const iat = Math.floor(cfg.now() / 1000);
-    const unsigned = `${b64url(JSON.stringify({ alg: 'RS256', typ: 'JWT' }))}.${b64url(JSON.stringify({ iss: sa.client_email, scope: SCOPE, aud, iat, exp: iat + 3600 }))}`;
-    const key = await crypto.subtle.importKey('pkcs8', pemToDer(sa.private_key), { name: 'RSASSA-PKCS1-v1_5', hash: 'SHA-256' }, false, ['sign']);
-    const jwt = `${unsigned}.${b64url(await crypto.subtle.sign('RSASSA-PKCS1-v1_5', key, enc.encode(unsigned)))}`;
-    const res = await cfg.fetch(aud, {
-      method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: new URLSearchParams({ grant_type: 'urn:ietf:params:oauth:grant-type:jwt-bearer', assertion: jwt }).toString(),
-    });
-    if (!res.ok) throw new Error(`Google токен: ${res.status}`);
-    const t = (await res.json()) as { access_token: string; expires_in: number };
-    token = { value: t.access_token, exp: cfg.now() + t.expires_in * 1000 };
-    return token.value;
-  }
-  async function drive(path: string, params: Record<string, string> = {}): Promise<Response> {
-    const q = new URLSearchParams({ supportsAllDrives: 'true', ...params });
-    return cfg.fetch(`${DRIVE}${path}?${q}`, { headers: { Authorization: `Bearer ${await accessToken()}` } });
-  }
-  async function driveJson<T>(path: string, params: Record<string, string>): Promise<T> {
-    const r = await drive(path, params);
-    if (!r.ok) throw new Error(`Google Drive: ${r.status}`);
-    return (await r.json()) as T;
-  }
-  type DFile = { id: string; name: string; mimeType: string; createdTime?: string; webViewLink?: string; parents?: string[];
-    imageMediaMetadata?: { time?: string } };
-  async function listAll(q: string, fields: string, orderBy?: string): Promise<{ files: DFile[]; truncated: boolean }> {
-    const files: DFile[] = [];
-    let pageToken: string | undefined;
-    do {
-      const r = await driveJson<{ files: DFile[]; nextPageToken?: string }>('', {
-        q, fields: `nextPageToken, files(${fields})`, pageSize: '200', includeItemsFromAllDrives: 'true',
-        ...(orderBy ? { orderBy } : {}), ...(pageToken ? { pageToken } : {}),
-      });
-      files.push(...r.files);
-      pageToken = r.nextPageToken;
-    } while (pageToken && files.length < MAX_PHOTOS);
-    return { files: files.slice(0, MAX_PHOTOS), truncated: !!pageToken || files.length > MAX_PHOTOS };
-  }
-  const quote = (s: string) => `'${s.replace(/\\/g, '\\\\').replace(/'/g, "\\'")}'`;
-
   async function list(vehicle: string) {
-    const found = await listAll(
-      `${quote(cfg.photosFolderId)} in parents and mimeType = '${FOLDER}' and trashed = false and name contains ${quote(vehicle)}`,
-      'id, name, webViewLink');
-    // «АВТО-02» не має знайти «АВТО-021»: після номера — кінець назви або не цифра
-    const exact = new RegExp(`^${vehicle}(?!\\d)`, 'u'); // vehicle уже перевірено VEHICLE_ID: лише літери, «-», цифри
-    const folder = found.files.filter(f => exact.test(f.name.trim())).sort((a, b) => a.name.localeCompare(b.name))[0];
+    const folder = await drive.findVehicleFolder(cfg.photosFolderId, vehicle);
     if (!folder) return { folder: null, photos: [] as DrivePhoto[], truncated: false };
-    const subs = await listAll(`${quote(folder.id)} in parents and mimeType = '${FOLDER}' and trashed = false`, 'id, name');
+    const subs = await drive.list(`${dq(folder.id)} in parents and mimeType = '${FOLDER_MIME}' and trashed = false`, 'id, name');
     const groupOf = new Map(subs.files.map(f => [f.id, f.name] as const));
     const parents = [folder.id, ...subs.files.map(f => f.id)];
-    const imgs = await listAll(
-      `(${parents.map(p => `${quote(p)} in parents`).join(' or ')}) and mimeType contains 'image/' and trashed = false`,
+    const imgs = await drive.list(
+      `(${parents.map(p => `${dq(p)} in parents`).join(' or ')}) and mimeType contains 'image/' and trashed = false`,
       'id, name, mimeType, createdTime, parents, imageMediaMetadata(time)', 'createdTime');
     const photos: DrivePhoto[] = [];
     for (const f of imgs.files) {
@@ -164,18 +105,18 @@ export function createHandler(cfg: DriveConfig) {
     if (!FILE_ID.test(id) || ![THUMB_W, FULL_W].includes(w) || !Number.isFinite(exp)) return fail(400, 'Неправильне посилання');
     if (exp * 1000 < cfg.now()) return fail(403, 'Посилання застаріло, оновіть сторінку');
     if (!safeEqual(sig, await hmac(cfg.urlSecret, `${id}.${w}.${exp}`))) return fail(403, 'Неправильний підпис посилання');
-    const meta = await drive(`/${encodeURIComponent(id)}`, { fields: 'mimeType, thumbnailLink' });
+    const meta = await drive.get(`/${encodeURIComponent(id)}`, { fields: 'mimeType, thumbnailLink' });
     if (meta.status === 404) return fail(404, 'Фото не знайдено');
     if (!meta.ok) return fail(502, `Google Drive: ${meta.status}`);
     const m = (await meta.json()) as { mimeType: string; thumbnailLink?: string };
     let res: Response | null = null;
     // Мініатюра потрібного розміру (JPEG) легша за оригінал з телефона і працює для HEIC
     if (m.thumbnailLink) {
-      const t = await cfg.fetch(m.thumbnailLink.replace(/=s\d+(-[a-z]+)?$/, `=s${w}`), { headers: { Authorization: `Bearer ${await accessToken()}` } });
+      const t = await cfg.fetch(m.thumbnailLink.replace(/=s\d+(-[a-z]+)?$/, `=s${w}`), { headers: await drive.auth() });
       if (t.ok) res = t;
     }
     if (!res && (m.mimeType === 'image/jpeg' || m.mimeType === 'image/png')) {
-      const o = await drive(`/${encodeURIComponent(id)}`, { alt: 'media' });
+      const o = await drive.get(`/${encodeURIComponent(id)}`, { alt: 'media' });
       if (o.ok) res = o;
     }
     if (!res) return fail(415, 'Цей формат фото не вдалося показати');

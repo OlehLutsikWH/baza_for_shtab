@@ -10,7 +10,12 @@ let now = AT_0905;
 type Sent = { chat: number; html: string; buttons?: Button[][] };
 let sent: Sent[] = [];
 let answers: { id: string; text?: string }[] = [];
-const tg = { send: async (chat: number, html: string, buttons?: Button[][]) => { sent.push({ chat, html, buttons }); }, answerCallback: async (id: string, text?: string) => { answers.push({ id, text }); } };
+const tg = {
+  send: async (chat: number, html: string, buttons?: Button[][]) => { sent.push({ chat, html, buttons }); },
+  edit: async (chat: number, _id: number, html: string, buttons?: Button[][]) => { sent.push({ chat, html, buttons }); },
+  answerCallback: async (id: string, text?: string) => { answers.push({ id, text }); },
+  download: async () => new Uint8Array([1]),
+};
 
 function data(): MemoryData {
   const d = demoData(new Date(now));
@@ -171,9 +176,9 @@ describe('бот: команди', () => {
     await bot.handleUpdate(msg(IVAN, '/add 555555555 команда Хтось'));
     expect(last().html).toContain('лише координатор');
   });
-  it('фото й файли — ввічлива відповідь', async () => {
-    await bot.handleUpdate(msg(OLEG, '', { text: undefined, photo: [{}] }));
-    expect(last().html).toContain('поки не приймаю');
+  it('фото без налаштованого сховища — пояснення, куди класти (решта фото — у bot.photos.test.ts)', async () => {
+    await bot.handleUpdate(msg(OLEG, '', { text: undefined, photo: [{ file_id: 'f1', width: 10, height: 10 }] }));
+    expect(last().html).toContain('Фото через бота ще не налаштовані');
   });
 });
 

@@ -1,11 +1,11 @@
 // Сховище бота поверх supabase-js з ключем service role (бот діє від імені системи, повз RLS;
 // хто що бачить — вирішує ядро бота за роллю користувача Telegram).
-import type { BotStore, BotUser, BotVehicle, PendingPayment, PendingReport, WaitingPart } from './core.ts';
+import type { BotStore, BotUpload, BotUser, BotVehicle, PendingPayment, PendingReport, WaitingPart } from './core.ts';
 
 type Res<T> = PromiseLike<{ data: T | null; error: { message: string } | null }>;
 // мінімальний тип клієнта, щоб файл не залежав від версії supabase-js
 // deno-lint-ignore no-explicit-any
-type SB = { from(t: string): any };
+type SB = { from(t: string): any; rpc(fn: string, args: Record<string, unknown>): any };
 
 async function q<T>(p: Res<T>, what: string): Promise<T> {
   const r = await p;
@@ -56,5 +56,48 @@ export function createSupabaseBotStore(sb: SB): BotStore {
       return rows.length > 0;
     },
     async markSent(kind, ref) { await q(sb.from('base_bot_log').upsert({ kind, ref }, { onConflict: 'kind,ref' }).select('kind'), 'Журнал бота'); },
+    async claim(kind, ref) {
+      // звичайна вставка: якщо такий запис уже є, база відмовить (23505) — значить, хтось встиг раніше
+      const r = await sb.from('base_bot_log').insert({ kind, ref }).select('kind');
+      if (r.error?.code === UNIQUE_VIOLATION) return false;
+      if (r.error) throw new Error(`Журнал бота: ${r.error.message}`);
+      return true;
+    },
+    async addUpload(u) {
+      const r = await sb.from('base_bot_uploads').insert(u).select(UPLOAD_COLS);
+      if (r.error?.code === UNIQUE_VIOLATION) return null; // те саме повідомлення Telegram уже записане
+      if (r.error) throw new Error(`Фото бота: ${r.error.message}`);
+      return r.data?.[0] ? upload(r.data[0]) : null;
+    },
+    async uploadGroup(id) {
+      const one = await q<Row[]>(sb.from('base_bot_uploads').select(UPLOAD_COLS).eq('id', id).limit(1), 'Фото бота');
+      if (!one.length) return [];
+      if (!one[0].media_group_id) return [upload(one[0])];
+      const all = await q<Row[]>(sb.from('base_bot_uploads').select(UPLOAD_COLS).eq('chat_id', Number(one[0].chat_id)).eq('media_group_id', one[0].media_group_id).order('id'), 'Фото бота');
+      return all.map(upload);
+    },
+    async claimUploads(ids, staleBefore) {
+      // атомарно в базі (функція base_bot_claim_uploads): два одночасні натискання не візьмуть те саме фото
+      const r = await sb.rpc('base_bot_claim_uploads', { p_ids: ids, p_stale_before: staleBefore });
+      if (r.error) throw new Error(`Фото бота: ${r.error.message}`);
+      return ((r.data ?? []) as { upload_id: number | string }[]).map(x => Number(x.upload_id));
+    },
+    async updateUploads(ids, patch, onlyIfStatus) {
+      let b = sb.from('base_bot_uploads').update({ ...patch, updated_at: new Date().toISOString() }).in('id', ids);
+      if (onlyIfStatus) b = b.eq('status', onlyIfStatus);
+      await q(b.select('id'), 'Фото бота');
+    },
+  };
+}
+
+const UNIQUE_VIOLATION = '23505';
+const UPLOAD_COLS = 'id, telegram_id, chat_id, message_id, media_group_id, file_id, file_name, mime, file_size, caption, sent_at, status, vehicle_id, kind, drive_file_id, error, updated_at';
+type Row = Record<string, unknown> & { chat_id: number; media_group_id: string | null };
+/** bigint з бази може прийти рядком — приводимо до чисел */
+function upload(r: Record<string, unknown>): BotUpload {
+  const n = (v: unknown) => (v === null || v === undefined ? null : Number(v));
+  return {
+    ...(r as unknown as BotUpload),
+    id: Number(r.id), telegram_id: Number(r.telegram_id), chat_id: Number(r.chat_id), message_id: Number(r.message_id), file_size: n(r.file_size),
   };
 }

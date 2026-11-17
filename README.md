@@ -47,3 +47,7 @@ DATABASE_URL=postgres://... npm run import -- --file таблиця.xlsx --apply
 ## Звіт для донорів
 PDF по завершеному авто: `src/lib/base/report/` (модель → верстка), вкладка в картці — `DonorReportPanel.tsx`.
 Зразок з демо-даних: `npm run report:sample -- АВТО-003` → `demo/dist/zrazok-zvitu-АВТО-003.pdf`. Подробиці — у INTEGRATION.md.
+
+
+## Telegram-бот і фото
+Бот (`supabase/functions/_shared/base-bot/`): зведення й нагадування керівникам, запити команди, статус кнопками, фото → папка авто на Google Drive (питає «До якого авто?», підпис «021 до» — одне натискання). Фото кладе Apps Script від імені власника папки (`google-apps-script/baza-photos/Code.gs`) або сервісний акаунт, якщо папка на спільному диску. Подробиці й секрети — у INTEGRATION.md.
