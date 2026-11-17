@@ -1,7 +1,7 @@
 // Реалізація BaseApi поверх supabase-js. Права забезпечує RLS у базі, а не цей код:
 // тут лише запити. Перевіряється на живій базі під час інтеграції (див. INTEGRATION.md).
 import type { SupabaseClient } from '@supabase/supabase-js';
-import type { NewJob, NewPart, BaseApi, Role, StatusPatch, Vehicle, VehicleDetail, VehicleSummary, Job, Part, FinanceItem, DocumentItem } from './types';
+import type { DonorReportPatch, DonorReportRow, PendingReport, NewJob, NewPart, BaseApi, Role, StatusPatch, Vehicle, VehicleDetail, VehicleSummary, Job, Part, FinanceItem, DocumentItem } from './types';
 
 function check<T>(res: { data: T | null; error: { message: string } | null }, what: string): T {
   if (res.error) throw new Error(`${what}: ${res.error.message}`);
@@ -66,6 +66,37 @@ export function createSupabaseApi(sb: SupabaseClient): BaseApi {
       const r = await sb.from('base_parts').insert({ status: 'Замовлено', ...i }).select('*').single();
       if (r.error) throw new Error(`Додавання запчастини: ${r.error.message}`);
       return r.data as Part;
+    },
+    async getDonorReport(vehicleId) {
+      if ((await role()) !== 'head') return null;
+      const r = await sb.from('base_donor_reports').select('*').eq('vehicle_id', vehicleId).maybeSingle();
+      if (r.error) throw new Error(`Звіт: ${r.error.message}`);
+      return (r.data as DonorReportRow | null) ?? null;
+    },
+    async saveDonorReport(vehicleId, patch: DonorReportPatch): Promise<DonorReportRow> {
+      const r = await sb.from('base_donor_reports').upsert({ vehicle_id: vehicleId, ...patch }, { onConflict: 'vehicle_id' }).select('*').single();
+      if (r.error) throw new Error(`Збереження звіту: ${r.error.message}`);
+      return r.data as DonorReportRow;
+    },
+    async setFinanceCategory(financeId, category) {
+      const r = await sb.from('base_finance').update({ category }).eq('id', financeId);
+      if (r.error) throw new Error(`Категорія витрати: ${r.error.message}`);
+    },
+    async storeReportPdf(vehicleId, file, filename): Promise<DonorReportRow> {
+      // finance/… — у Storage лише для керівників (base_003_rls.sql)
+      const path = `finance/reports/${vehicleId}/${filename}`;
+      const up = await sb.storage.from('base-files').upload(path, file, { contentType: 'application/pdf', upsert: true });
+      if (up.error) throw new Error(`Завантаження PDF: ${up.error.message}`);
+      const uid = (await sb.auth.getUser()).data.user?.id ?? null;
+      const r = await sb.from('base_donor_reports')
+        .upsert({ vehicle_id: vehicleId, status: 'Сформовано', storage_path: path, generated_at: new Date().toISOString(), generated_by: uid }, { onConflict: 'vehicle_id' })
+        .select('*').single();
+      if (r.error) throw new Error(`Звіт: ${r.error.message}`);
+      return r.data as DonorReportRow;
+    },
+    async listPendingReports() {
+      if ((await role()) !== 'head') return null;
+      return check(await sb.from('base_reports_pending').select('vehicle_id, name, status').order('created_at'), 'Звіти') as PendingReport[];
     },
     async updateVehicleStatus(id, patch: StatusPatch): Promise<Vehicle> {
       const r = await sb.from('base_vehicles').update(patch).eq('id', id).select('*').single();

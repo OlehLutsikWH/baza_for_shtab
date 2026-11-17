@@ -5,6 +5,6 @@ import { useSearchParams } from 'next/navigation';
 import { VehicleDetailView } from '../../../components/base/VehicleDetailView';
 
 export default function CarPage() {
-  const id = useSearchParams().get('id');
-  return <VehicleDetailView id={id} />;
+  const params = useSearchParams();
+  return <VehicleDetailView id={params.get('id')} initialTab={params.get('tab')} />;
 }

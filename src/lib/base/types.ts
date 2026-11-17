@@ -22,6 +22,8 @@ export interface FinanceItem {
   id: number; vehicle_id: string | null; scope: string; amount: number; spent_on: string | null; purpose: string | null;
   doc_ref: string | null; source: string | null; person_dejure: string | null; pay_status: string; paid_on: string | null;
   legacy_links: LegacyLink[] | null;
+  /** Стаття витрати з довідника finance_category; null — ще не вказано */
+  category: string | null;
 }
 export interface DocumentItem {
   id: number; vehicle_id: string; doc_type: string | null; storage_path: string | null; legacy_links: LegacyLink[] | null;
@@ -42,6 +44,28 @@ export interface StatusPatch { status?: string; blocker?: string | null; next_st
 export interface NewJob { vehicle_id: string; description: string; executor?: string | null; location?: string | null; status?: string; notes?: string | null }
 export interface NewPart { vehicle_id: string; name: string; qty: number; supplier?: string | null; status?: string; notes?: string | null }
 
+/** Фото для звіту: файл у Storage (vehicles/<ID>/…), підпис і «до»/«після». */
+export interface ReportPhoto { path: string; caption?: string | null; kind?: 'до' | 'після' | null }
+
+/** Те, що керівник дописав до звіту для донорів (таблиця base_donor_reports). */
+export interface DonorReportRow {
+  vehicle_id: string;
+  status: 'Чернетка' | 'Сформовано';
+  story: string | null;
+  thanks: string | null;
+  unit_label: string | null;
+  show_unit: boolean;
+  show_invoices: boolean;
+  /** id витрати → як цей рахунок назвати для донорів */
+  row_labels: Record<string, string>;
+  photo_paths: ReportPhoto[];
+  storage_path: string | null;
+  generated_at: string | null;
+}
+export type DonorReportPatch = Partial<Pick<DonorReportRow,
+  'story' | 'thanks' | 'unit_label' | 'show_unit' | 'show_invoices' | 'row_labels' | 'photo_paths'>>;
+export interface PendingReport { vehicle_id: string; name: string; status: string }
+
 export interface BaseApi {
   role(): Promise<Role>;
   statuses(): Promise<string[]>;
@@ -50,9 +74,19 @@ export interface BaseApi {
   updateVehicleStatus(id: string, patch: StatusPatch): Promise<Vehicle>;
   /** Усі фінансові записи; null для не-керівників. */
   listFinance(): Promise<FinanceItem[] | null>;
-  /** Запис роботи/запчастини — лише керівники (припущення, див. README). */
   /** Тимчасове посилання на файл у bucket base-files (діє за політиками Storage). */
   signedUrl(path: string): Promise<string>;
+  /** Запис роботи/запчастини — лише керівники (припущення, див. README). */
   addJob(input: NewJob): Promise<Job>;
   addPart(input: NewPart): Promise<Part>;
+
+  // ---- Звіт для донорів (лише керівники) ----
+  /** Чернетка/звіт по авто; null — звіту ще немає або немає прав. */
+  getDonorReport(vehicleId: string): Promise<DonorReportRow | null>;
+  saveDonorReport(vehicleId: string, patch: DonorReportPatch): Promise<DonorReportRow>;
+  setFinanceCategory(financeId: number, category: string | null): Promise<void>;
+  /** Зберегти сформований PDF (Storage finance/reports/…) і позначити звіт «Сформовано». */
+  storeReportPdf(vehicleId: string, file: Blob, filename: string): Promise<DonorReportRow>;
+  /** Завершені авто, по яких звіт ще чернетка; null для не-керівників. */
+  listPendingReports(): Promise<PendingReport[] | null>;
 }

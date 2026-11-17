@@ -1,5 +1,6 @@
-import type { NewJob, NewPart, Job, Part, BaseApi, Role, StatusPatch, Vehicle, VehicleDetail, VehicleSummary } from './types';
-import { demoData } from './demoData';
+import type { DonorReportPatch, DonorReportRow, NewJob, NewPart, Job, Part, BaseApi, Role, StatusPatch, Vehicle, VehicleDetail, VehicleSummary } from './types';
+import { demoData, draftReport } from './demoData';
+import { FINAL_STATUSES } from './format';
 
 export type DemoStore = ReturnType<typeof demoData>;
 
@@ -47,7 +48,43 @@ export function createDemoApi(role: Role = 'head', now: () => Date = () => new D
       const i = d.vehicles.findIndex(v => v.id === id);
       if (i < 0) throw new Error('Авто не знайдено');
       d.vehicles[i] = { ...d.vehicles[i], ...patch, status_updated_at: now().toISOString() };
+      // як тригер base_vehicle_report_draft: ремонт завершено → чернетка звіту
+      if (FINAL_STATUSES.includes(d.vehicles[i].status) && !d.reports.some(r => r.vehicle_id === id)) d.reports.push(draftReport(id));
       return d.vehicles[i];
+    },
+
+    async getDonorReport(vehicleId) {
+      if (role !== 'head') return null;
+      const r = d.reports.find(x => x.vehicle_id === vehicleId);
+      return r ? { ...r } : null;
+    },
+    async saveDonorReport(vehicleId, patch: DonorReportPatch): Promise<DonorReportRow> {
+      if (role !== 'head') throw new Error('Звіти доступні лише керівникам');
+      if (!d.vehicles.some(v => v.id === vehicleId)) throw new Error('Авто не знайдено');
+      let i = d.reports.findIndex(x => x.vehicle_id === vehicleId);
+      if (i < 0) { d.reports.push(draftReport(vehicleId)); i = d.reports.length - 1; }
+      d.reports[i] = { ...d.reports[i], ...patch };
+      return { ...d.reports[i] };
+    },
+    async setFinanceCategory(financeId, category) {
+      if (role !== 'head') throw new Error('Фінанси доступні лише керівникам');
+      const f = d.finance.find(x => x.id === financeId);
+      if (!f) throw new Error('Витрату не знайдено');
+      f.category = category;
+    },
+    async storeReportPdf(vehicleId, file, filename): Promise<DonorReportRow> {
+      if (role !== 'head') throw new Error('Звіти доступні лише керівникам');
+      if (!(file.size > 0)) throw new Error('Порожній файл звіту');
+      if (!d.vehicles.some(v => v.id === vehicleId)) throw new Error('Авто не знайдено');
+      let i = d.reports.findIndex(x => x.vehicle_id === vehicleId);
+      if (i < 0) { d.reports.push(draftReport(vehicleId)); i = d.reports.length - 1; }
+      d.reports[i] = { ...d.reports[i], status: 'Сформовано', storage_path: `demo:finance/reports/${vehicleId}/${filename}`, generated_at: now().toISOString() };
+      return { ...d.reports[i] };
+    },
+    async listPendingReports() {
+      if (role !== 'head') return null;
+      return d.reports.filter(r => r.status === 'Чернетка')
+        .map(r => { const v = d.vehicles.find(x => x.id === r.vehicle_id)!; return { vehicle_id: v.id, name: v.name, status: v.status }; });
     },
   };
 }

@@ -42,3 +42,8 @@ DATABASE_URL=postgres://... npm run import -- --file таблиця.xlsx --apply
 - Файл xlsx не комітити (у `.gitignore`).
 
 Скрипт з `DATABASE_URL` перевірено лише на PGlite (Postgres у WASM); на живому Supabase не запускався.
+
+
+## Звіт для донорів
+PDF по завершеному авто: `src/lib/base/report/` (модель → верстка), вкладка в картці — `DonorReportPanel.tsx`.
+Зразок з демо-даних: `npm run report:sample -- АВТО-003` → `demo/dist/zrazok-zvitu-АВТО-003.pdf`. Подробиці — у INTEGRATION.md.

@@ -6,13 +6,15 @@
   "scripts": {
     "test": "vitest run",
     "import": "tsx scripts/import-xlsx.ts",
-    "demo": "node demo/build.mjs"
+    "demo": "node demo/build.mjs",
+    "report:sample": "tsx --tsconfig scripts/tsconfig.json scripts/sample-report.tsx"
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
   "dependencies": {
     "@electric-sql/pglite": "^0.5.16",
+    "@react-pdf/renderer": "^4.9.0",
     "@supabase/supabase-js": "^2.119.0",
     "exceljs": "^4.4.0",
     "next": "^15.5.29",
@@ -23,6 +25,8 @@
   },
   "private": true,
   "devDependencies": {
+    "@expo-google-fonts/inter": "^0.4.2",
+    "@expo-google-fonts/unbounded": "^0.4.1",
     "@testing-library/react": "^16.3.3",
     "@testing-library/user-event": "^14.6.12",
     "@types/node": "^26.6.6",

@@ -1,3 +1,4 @@
+import { saveFile } from './files';
 import type { FinanceItem, VehicleSummary } from './types';
 
 /** CSV з роздільником «;» і BOM — Excel українською відкриває без налаштувань. Захист від формул (=,+,-,@). */
@@ -22,6 +23,5 @@ export const financeCsv = (items: FinanceItem[]) => toCsv([
 ]);
 
 export function download(name: string, text: string) {
-  const url = URL.createObjectURL(new Blob([text], { type: 'text/csv;charset=utf-8' }));
-  const a = document.createElement('a'); a.href = url; a.download = name; a.click(); URL.revokeObjectURL(url);
+  return saveFile(name, text, 'text/csv;charset=utf-8');
 }

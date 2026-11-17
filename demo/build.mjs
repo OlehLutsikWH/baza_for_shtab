@@ -12,23 +12,31 @@ const ALIAS = {
   'next/navigation': shim('next-navigation.ts'),
   'react': shim('react.cjs'),
   'react-dom/client': shim('react-dom-client.cjs'),
+  'react/jsx-runtime': shim('react-jsx-runtime.js'),
   '@supabase/supabase-js': shim('supabase-stub.ts'),
 };
 
 const demoPlugin = {
   name: 'demo',
   setup(b) {
-    b.onResolve({ filter: /^(next\/link|next\/navigation|react|react-dom\/client|@supabase\/supabase-js)$/ }, a => ({ path: ALIAS[a.path] }));
-    b.onResolve({ filter: /^(react\/jsx-runtime|react-dom|next\/.*)$/ }, a => ({ errors: [{ text: `Демо не підтримує імпорт «${a.path}»` }] }));
-    // Сторінка-артефакт не може сама почати завантаження: download() у csv.ts підміняється демо-версією.
-    b.onLoad({ filter: /src[\\/]lib[\\/]base[\\/]csv\.ts$/ }, a => {
+    b.onResolve({ filter: /^(next\/link|next\/navigation|react|react-dom\/client|react\/jsx-runtime|@supabase\/supabase-js)$/ }, a => ({ path: ALIAS[a.path] }));
+    b.onResolve({ filter: /^(react-dom|next\/.*)$/ }, a => ({ errors: [{ text: `Демо не підтримує імпорт «${a.path}»` }] }));
+    // Сторінка-артефакт не може сама почати завантаження: saveFile() підміняється демо-версією.
+    b.onLoad({ filter: /src[\\/]lib[\\/]base[\\/]files\.ts$/ }, a => {
       const src = readFileSync(a.path, 'utf8');
-      const marker = 'export function download(';
-      if (!src.includes(marker)) throw new Error('csv.ts: не знайдено download() — оновіть demo/build.mjs');
+      const marker = 'export function saveFile(';
+      if (!src.includes(marker)) throw new Error('files.ts: не знайдено saveFile() — оновіть demo/build.mjs');
       return {
-        contents: src.replace(marker, 'function moduleDownload(') + `\nexport { demoDownload as download } from ${JSON.stringify(join(here, 'download.ts'))};\n`,
+        contents: src.replace(marker, 'function moduleSaveFile(') + `\nexport { demoSaveFile as saveFile } from ${JSON.stringify(join(here, 'download.ts'))};\n`,
         loader: 'ts', resolveDir: dirname(a.path),
       };
+    });
+    // Шрифти для PDF публікуються поруч зі сторінкою (fonts/…), а не з кореня сайту.
+    b.onLoad({ filter: /src[\\/]lib[\\/]base[\\/]config\.ts$/ }, a => {
+      const src = readFileSync(a.path, 'utf8');
+      const marker = "export const REPORT_FONT_BASE = '/base/fonts/';";
+      if (!src.includes(marker)) throw new Error('config.ts: не знайдено REPORT_FONT_BASE — оновіть demo/build.mjs');
+      return { contents: src.replace(marker, "export const REPORT_FONT_BASE = 'fonts/';"), loader: 'ts', resolveDir: dirname(a.path) };
     });
   },
 };
@@ -41,6 +49,8 @@ const res = await build({
     'process.env.NEXT_PUBLIC_SUPABASE_URL': 'undefined',
     'process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY': 'undefined',
     'process.env.NODE_ENV': '"production"',
+    // У IIFE немає import.meta: pdfkit і yoga лише будують з нього адреси (файли не завантажують)
+    'import.meta.url': '"https://demo.invalid/"',
   },
   plugins: [demoPlugin],
 });

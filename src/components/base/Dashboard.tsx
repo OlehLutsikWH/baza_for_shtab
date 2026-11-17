@@ -5,24 +5,24 @@ import { useBaseApi } from '../../lib/base/context';
 import { buildDashboard, type DashboardData } from '../../lib/base/dashboard';
 import { formatMoney } from '../../lib/base/format';
 import { financeCsv, vehiclesCsv, download } from '../../lib/base/csv';
-import type { FinanceItem, VehicleSummary } from '../../lib/base/types';
+import type { FinanceItem, PendingReport, VehicleSummary } from '../../lib/base/types';
 import { StatusBadge } from './StatusBadge';
 
 export function Dashboard({ now: nowProp }: { now?: Date }) {
   const api = useBaseApi();
   const now = useMemo(() => nowProp ?? new Date(), [nowProp]);
-  const [state, setState] = useState<{ list: VehicleSummary[]; fin: FinanceItem[] | null; d: DashboardData } | null>(null);
+  const [state, setState] = useState<{ list: VehicleSummary[]; fin: FinanceItem[] | null; d: DashboardData; pending: PendingReport[] | null } | null>(null);
   const [error, setError] = useState<string | null>(null);
   useEffect(() => {
     let off = false;
-    Promise.all([api.listVehicles(), api.statuses(), api.listFinance()])
-      .then(([list, st, fin]) => { if (!off) setState({ list, fin, d: buildDashboard(list, st, fin, now) }); })
+    Promise.all([api.listVehicles(), api.statuses(), api.listFinance(), api.listPendingReports()])
+      .then(([list, st, fin, pending]) => { if (!off) setState({ list, fin, pending, d: buildDashboard(list, st, fin, now) }); })
       .catch(e => { if (!off) setError(e instanceof Error ? e.message : String(e)); });
     return () => { off = true; };
   }, [api, now]);
   if (error) return <p role="alert" className="base-error">Не вдалося завантажити: {error}</p>;
   if (!state) return <p className="base-muted">Завантаження…</p>;
-  const { list, fin, d } = state;
+  const { list, fin, d, pending } = state;
   const stamp = now.toISOString().slice(0, 10);
   const Row = ({ v, why }: { v: VehicleSummary; why: string }) => (
     <li><Link href={`/base/car/?id=${encodeURIComponent(v.id)}`}><b>{v.name}</b></Link> <StatusBadge value={v.status} /> <span className="base-muted">{why}</span></li>
@@ -44,6 +44,13 @@ export function Dashboard({ now: nowProp }: { now?: Date }) {
             {d.blocked.map(v => <Row key={'b' + v.id} v={v} why={`Блокер: ${v.blocker}`} />)}
             {d.stale.filter(v => !v.blocker).map(v => <Row key={'s' + v.id} v={v} why="давно не оновлювалось" />)}
           </ul>}</section>
+      {pending && pending.length > 0 && (
+        <section className="base-now"><h2 className="base-h2">Звіти для донорів</h2>
+          <p className="base-muted">Ремонт завершено, звіт ще не сформовано:</p>
+          <ul className="base-plain">{pending.map(p => (
+            <li key={p.vehicle_id}><Link href={`/base/car/?id=${encodeURIComponent(p.vehicle_id)}&tab=report`}><b>{p.name}</b></Link> <StatusBadge value={p.status} /></li>
+          ))}</ul>
+        </section>)}
       {d.money && (
         <section className="base-now"><h2 className="base-h2">Гроші (лише керівники)</h2>
           <p>Очікує оплати: <b>{formatMoney(d.money.pending)}</b></p>

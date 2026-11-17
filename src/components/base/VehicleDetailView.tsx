@@ -3,11 +3,12 @@ import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import Link from 'next/link';
 import { useBaseApi } from '../../lib/base/context';
 import type { LegacyLink, Role, Vehicle, VehicleDetail } from '../../lib/base/types';
-import { ageLabel, financeTotals, formatDate, formatMoney, isStale, partsToGet } from '../../lib/base/format';
+import { FINAL_STATUSES, ageLabel, financeTotals, formatDate, formatMoney, isStale, partsToGet } from '../../lib/base/format';
 import { StatusBadge } from './StatusBadge';
 import { StatusEditor } from './StatusEditor';
+import { DonorReportPanel } from './DonorReportPanel';
 
-type Tab = 'jobs' | 'parts' | 'finance' | 'docs';
+type Tab = 'jobs' | 'parts' | 'finance' | 'docs' | 'report';
 
 function Links({ links }: { links: LegacyLink[] | null }) {
   if (!links?.length) return <span className="base-muted">—</span>;
@@ -36,20 +37,22 @@ function Table({ head, children, empty }: { head: string[]; children: ReactNode[
   );
 }
 
-export function VehicleDetailView({ id, now: nowProp }: { id: string | null; now?: Date }) {
+export function VehicleDetailView({ id, now: nowProp, initialTab }: { id: string | null; now?: Date; initialTab?: string | null }) {
   const api = useBaseApi();
   const now = useMemo(() => nowProp ?? new Date(), [nowProp]);
   const [detail, setDetail] = useState<VehicleDetail | null | undefined>(undefined);
   const [role, setRole] = useState<Role>('member');
   const [statuses, setStatuses] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
-  const [tab, setTab] = useState<Tab>('jobs');
+  const [tab, setTab] = useState<Tab>(initialTab === 'report' ? 'report' : 'jobs');
+  const [hasReport, setHasReport] = useState(false);
+  const [reportNotice, setReportNotice] = useState(false);
 
   useEffect(() => {
     if (!id) { setDetail(null); return; }
     let off = false;
-    Promise.all([api.getVehicleDetail(id), api.role(), api.statuses()])
-      .then(([d, r, s]) => { if (!off) { setDetail(d); setRole(r); setStatuses(s); } })
+    Promise.all([api.getVehicleDetail(id), api.role(), api.statuses(), api.getDonorReport(id)])
+      .then(([d, r, s, rep]) => { if (!off) { setDetail(d); setRole(r); setStatuses(s); setHasReport(!!rep); } })
       .catch(e => { if (!off) setError(e instanceof Error ? e.message : String(e)); });
     return () => { off = true; };
   }, [api, id]);
@@ -70,8 +73,14 @@ export function VehicleDetailView({ id, now: nowProp }: { id: string | null; now
     { key: 'parts', label: 'Запчастини', count: parts.length },
     ...(finance ? [{ key: 'finance' as Tab, label: 'Фінанси', count: finance.length }] : []),
     { key: 'docs', label: 'Документи', count: documents.length },
+    ...(isHead && (FINAL_STATUSES.includes(v.status) || hasReport) ? [{ key: 'report' as Tab, label: 'Звіт для донорів' }] : []),
   ];
-  const saved = (nv: Vehicle) => setDetail({ ...detail, vehicle: nv });
+  const active: Tab = tabs.some(t => t.key === tab) ? tab : 'jobs';
+  const saved = (nv: Vehicle) => {
+    // ремонт щойно завершено → база вже створила чернетку звіту; підказуємо, де вона
+    if (FINAL_STATUSES.includes(nv.status) && !FINAL_STATUSES.includes(v.status)) { setHasReport(true); setReportNotice(true); }
+    setDetail({ ...detail, vehicle: nv });
+  };
 
   return (
     <article>
@@ -92,6 +101,12 @@ export function VehicleDetailView({ id, now: nowProp }: { id: string | null; now
           <dt>Відповідальний</dt><dd>{v.responsible ?? <span className="base-muted">Не призначено</span>}</dd>
           <dt>Оновлено</dt><dd className={stale ? 'base-stale' : ''}>{ageLabel(v.status_updated_at, now)}{stale ? ' ⚠ давно не оновлювалось' : ''}</dd>
         </dl>
+        {isHead && reportNotice && (
+          <p className="base-notice" role="status">
+            Ремонт завершено. Чернетка звіту для донорів уже готова.{' '}
+            <button type="button" className="base-linkbtn" onClick={() => { setTab('report'); setReportNotice(false); }}>Відкрити звіт</button>
+          </p>
+        )}
         {isHead && <StatusEditor vehicle={v} statuses={statuses} onSaved={saved} />}
       </section>
 
@@ -114,14 +129,14 @@ export function VehicleDetailView({ id, now: nowProp }: { id: string | null; now
 
       <div role="tablist" className="base-tabs" aria-label="Розділи картки">
         {tabs.map(t => (
-          <button key={t.key} role="tab" id={`tab-${t.key}`} aria-selected={tab === t.key} aria-controls="base-panel"
-            className={tab === t.key ? 'is-active' : ''} onClick={() => setTab(t.key)}>
+          <button key={t.key} role="tab" id={`tab-${t.key}`} aria-selected={active === t.key} aria-controls="base-panel"
+            className={active === t.key ? 'is-active' : ''} onClick={() => setTab(t.key)}>
             {t.label}{t.count != null && <span className="base-count">{t.count}</span>}
           </button>
         ))}
       </div>
-      <div role="tabpanel" id="base-panel" aria-labelledby={`tab-${tab}`} className="base-panel">
-        {tab === 'jobs' && (
+      <div role="tabpanel" id="base-panel" aria-labelledby={`tab-${active}`} className="base-panel">
+        {active === 'jobs' && (
           <Table head={['Робота', 'Статус', 'Виконавець', 'Місце', 'Початок', 'Кінець', 'Днів']} empty="Робіт ще немає.">
             {jobs.map(j => <tr key={j.id}>
               <td>{j.description ?? '—'}{j.notes && <div className="base-muted">{j.notes}</div>}</td>
@@ -129,14 +144,14 @@ export function VehicleDetailView({ id, now: nowProp }: { id: string | null; now
               <td>{formatDate(j.started_on)}</td><td>{formatDate(j.finished_on)}</td><td>{j.duration_days ?? '—'}</td></tr>)}
           </Table>
         )}
-        {tab === 'parts' && (
+        {active === 'parts' && (
           <Table head={['Запчастина', 'К-сть', 'Статус', 'Постачальник', 'Замовлено', 'Отримано']} empty="Запчастин ще немає.">
             {parts.map(p => <tr key={p.id}>
               <td>{p.name}{p.notes && <div className="base-muted">{p.notes}</div>}</td><td>{p.qty}</td><td><StatusBadge value={p.status} /></td>
               <td>{p.supplier ?? '—'}</td><td>{formatDate(p.ordered_on)}</td><td>{formatDate(p.received_on)}</td></tr>)}
           </Table>
         )}
-        {tab === 'finance' && finance && (
+        {active === 'finance' && finance && (
           <>
             <p className="base-muted">Оплачено {formatMoney(fin!.paid)} · очікує {formatMoney(fin!.pending)}</p>
             <Table head={['Дата', 'На що', 'Сума', 'Джерело', 'Особа', 'Оплата', 'Документ']} empty="Фінансових записів немає.">
@@ -147,13 +162,14 @@ export function VehicleDetailView({ id, now: nowProp }: { id: string | null; now
             </Table>
           </>
         )}
-        {tab === 'docs' && (
+        {active === 'docs' && (
           <Table head={['Тип', 'Дата', 'Файл', 'Примітки']} empty="Документів ще немає.">
             {documents.map(d => <tr key={d.id}>
               <td>{d.doc_type ?? '—'}</td><td>{formatDate(d.doc_date)}</td>
               <td>{d.storage_path ? <FileLink path={d.storage_path} /> : <Links links={d.legacy_links} />}</td><td>{d.notes ?? ''}</td></tr>)}
           </Table>
         )}
+        {active === 'report' && isHead && <DonorReportPanel detail={detail} now={now} />}
       </div>
     </article>
   );

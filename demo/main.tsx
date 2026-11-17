@@ -9,7 +9,7 @@ import CarPage from '../src/app/base/car/page';
 import QuickPage from '../src/app/base/quick/page';
 import Link from './shims/next-link';
 import { getState, subscribe, setRole, type Role } from './router';
-import { onPreview, closePreview } from './download';
+import { onPreview, closePreview, type Preview } from './download';
 
 function NotFound() {
   return <p className="base-empty">Такої сторінки немає. <Link href="/base/">До зведення</Link></p>;
@@ -39,8 +39,8 @@ function RoleBar({ role }: { role: Role }) {
   );
 }
 
-function CsvPreview() {
-  const [p, setP] = useState<{ name: string; text: string; note?: string } | null>(null);
+function FilePreview() {
+  const [p, setP] = useState<Preview | null>(null);
   useEffect(() => onPreview(setP), []);
   useEffect(() => {
     if (!p) return;
@@ -49,14 +49,14 @@ function CsvPreview() {
     return () => window.removeEventListener('keydown', onKey);
   }, [p]);
   if (!p) return null;
-  const lines = p.text.replace(/^﻿/, '').replace(/\r\n$/, '').split('\r\n');
+  const lines = p.text === null ? [] : p.text.replace(/^\uFEFF/, '').replace(/\r\n$/, '').split('\r\n');
   const MAX = 30;
   return (
     <div className="demo-scrim" onClick={e => { if (e.target === e.currentTarget) closePreview(); }}>
       <div className="demo-modal" role="dialog" aria-modal="true" aria-labelledby="demo-modal-title">
         <h2 id="demo-modal-title" className="demo-modal__title">{p.name}</h2>
         {p.note && <p className="demo-modal__note">{p.note}</p>}
-        <div className="demo-pre"><pre>{lines.slice(0, MAX).join('\n')}</pre></div>
+        {lines.length > 0 && <div className="demo-pre"><pre>{lines.slice(0, MAX).join('\n')}</pre></div>}
         {lines.length > MAX && <p className="demo-modal__note">…і ще {lines.length - MAX} рядків</p>}
         <button type="button" className="demo-btn" id="demo-modal-close" onClick={closePreview} autoFocus>Закрити</button>
       </div>
@@ -71,7 +71,7 @@ function App() {
     <>
       <RoleBar role={s.role} />
       <BaseLayout><Page /></BaseLayout>
-      <CsvPreview />
+      <FilePreview />
     </>
   );
 }
