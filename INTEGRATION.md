@@ -8,11 +8,11 @@
 5. Чи використовує «Штаб» Supabase Storage, і яка конвенція bucket / політик.
 
 ## Накочувати
-Порядок: `base_001_schema.sql` → `base_002_views.sql` → `base_003_rls.sql` (RLS + Storage-політики).
+Порядок: `base_001_schema.sql` → `base_002_views.sql` → `base_003_rls.sql` (RLS + Storage-політики) → `base_004_donor_reports.sql` → `base_005_bot.sql` → `base_006_bot_uploads.sql`.
 **НЕ накочувати `base_000_standalone_stubs.sql`.**
 
 ## Що ще не зроблено
-Інструменти для Telegram-бота й нагадування, завантаження файлів з інтерфейсу, міграція файлів з Drive у Storage, xlsx-експорт (після MVP).
+Завантаження файлів зі сторінок модуля, документи через бота (потрібна окрема закрита папка), автоматичне читання рахунків (потрібен доступ до ШІ), зміна блокера й «що далі» з Telegram, xlsx-експорт. Фото й документи свідомо лишаються на Google Drive (рішення Олега 17.11.2026) — у Storage їх не переносимо.
 
 ## Перевірити після накочування (на копії бази)
 - не-керівник не бачить `base_finance` і view `base_debts_by_person`, `base_spend_by_vehicle`;
