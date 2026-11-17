@@ -26,7 +26,6 @@
   "private": true,
   "devDependencies": {
     "@expo-google-fonts/inter": "^0.4.2",
-    "@expo-google-fonts/unbounded": "^0.4.1",
     "@testing-library/react": "^16.3.3",
     "@testing-library/user-event": "^14.6.12",
     "@types/node": "^26.6.6",

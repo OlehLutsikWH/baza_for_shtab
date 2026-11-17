@@ -1,14 +1,17 @@
-// PDF-верстка звіту для донорів (@react-pdf/renderer). Дані — лише з DonorReportModel (model.ts),
-// тож усе приватне відсічене ще до верстки.
+// PDF-верстка звіту для донорів (@react-pdf/renderer) в айдентиці «Бази»: білий знак у темно-оливковій
+// шапці, смуга під 22,5°, палітра й IBM Plex Mono — як в інструкції на кермі.
+// Дані — лише з DonorReportModel (model.ts), тож усе приватне відсічене ще до верстки.
 import { Document, Page, View, Text, Image, Svg, Polygon, StyleSheet, Font } from '@react-pdf/renderer';
 import type { ReactNode } from 'react';
 import type { DonorReportModel } from './model';
 import { money, moneyShort, plural } from './model';
 import { BRAND } from './brand';
+import { BAZA, BazaLogo, Stripes } from './brandmark';
 
 // ---------- шрифти ----------
 export const REPORT_FONT_FILES = {
-  regular: 'Inter-Regular.ttf', semibold: 'Inter-SemiBold.ttf', bold: 'Inter-Bold.ttf', display: 'Unbounded-SemiBold.ttf',
+  regular: 'Inter-Regular.ttf', semibold: 'Inter-SemiBold.ttf', bold: 'Inter-Bold.ttf',
+  monoSemibold: 'IBMPlexMono-SemiBold.ttf', monoBold: 'IBMPlexMono-Bold.ttf',
 } as const;
 let fontsKey: string | null = null;
 /** `src(file)` повертає шлях/URL/data URI до файлу з public/base/fonts. */
@@ -20,53 +23,43 @@ export function registerReportFonts(src: (file: string) => string) {
     { src: src(REPORT_FONT_FILES.semibold), fontWeight: 600 },
     { src: src(REPORT_FONT_FILES.bold), fontWeight: 700 },
   ] });
-  Font.register({ family: 'Unbounded', fonts: [{ src: src(REPORT_FONT_FILES.display), fontWeight: 600 }] });
+  Font.register({ family: 'Plex', fonts: [
+    { src: src(REPORT_FONT_FILES.monoSemibold), fontWeight: 600 },
+    { src: src(REPORT_FONT_FILES.monoBold), fontWeight: 700 },
+  ] });
   // українські слова не переносимо (стандартні правила переносу — англійські)
   Font.registerHyphenationCallback(word => [word]);
   fontsKey = key;
 }
 
 // ---------- токени ----------
-// Оливковий — «польовий» колір техніки; кут смуг 22,5° — з айдентики фонду.
 const C = {
-  ink: '#17202b', muted: '#5b6573', faint: '#8b94a1', line: '#dde1e6',
-  olive: '#4d5a2c', oliveDeep: '#323b1b', oliveSoft: '#8c9a5b', khaki: '#ecefdf', sand: '#f6f5ef',
-  amber: '#8f5400', amberBg: '#fbefd9', green: '#2b6a47', greenBg: '#e4f1e8', white: '#ffffff',
+  ...BAZA,
+  muted: '#5d6a58', faint: '#8a9485', line: '#dfe4d8', white: '#ffffff',
+  ok: '#3f6b3a', okBg: '#e3eedf', warn: '#8a5a00', warnBg: '#f7ecd2', warnOnDark: '#ead9a8',
 };
-const TAN = Math.tan((22.5 * Math.PI) / 180); // нахил смуг
-const W = 595.28 - 2 * 40; // ширина набору
+const TAN = Math.tan((22.5 * Math.PI) / 180);
+const PAGE_W = 595.28, PAD_X = 40, PAD_TOP = 44;
+const W = PAGE_W - 2 * PAD_X; // ширина набору
 
 const s = StyleSheet.create({
   // lineHeight на Page не ставити: у react-pdf 4.9 він ламає абсолютні fixed-колонтитули (перевірено)
-  page: { paddingTop: 44, paddingBottom: 60, paddingHorizontal: 40, fontFamily: 'Inter', fontSize: 10, color: C.ink },
-  runHead: { position: 'absolute', top: 20, left: 40, right: 40, flexDirection: 'row', justifyContent: 'space-between', fontSize: 7.5, color: C.faint },
-  foot: { position: 'absolute', bottom: 24, left: 40, right: 40, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
-    borderTopWidth: 0.5, borderTopColor: C.line, paddingTop: 7, fontSize: 7.5, color: C.faint },
-  kicker: { fontSize: 7.5, fontWeight: 600, letterSpacing: 1.2, textTransform: 'uppercase', color: C.muted },
-  draftPill: { fontSize: 7.5, fontWeight: 700, letterSpacing: 1, color: C.amber, backgroundColor: C.amberBg, paddingVertical: 3, paddingHorizontal: 7, borderRadius: 3 },
-  h1: { fontFamily: 'Unbounded', fontWeight: 600, fontSize: 30, lineHeight: 1.15, color: C.ink },
-  h2: { fontFamily: 'Unbounded', fontWeight: 600, fontSize: 14, color: C.ink },
-  lede: { fontSize: 11.5, lineHeight: 1.55, color: C.ink },
+  page: { paddingTop: PAD_TOP, paddingBottom: 56, paddingHorizontal: PAD_X, fontFamily: 'Inter', fontSize: 10, color: C.ink },
+  runHead: { position: 'absolute', top: 20, left: PAD_X, right: PAD_X, fontFamily: 'Plex', fontWeight: 600, fontSize: 7.5, letterSpacing: 0.6, color: C.faint },
+  foot: { position: 'absolute', bottom: 0, left: 0, right: 0, height: 26, backgroundColor: C.olive, paddingHorizontal: PAD_X,
+    flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', fontSize: 7.5, color: C.white },
+  mono: { fontFamily: 'Plex', fontWeight: 600 },
+  kicker: { fontFamily: 'Plex', fontWeight: 600, fontSize: 7.5, letterSpacing: 0.9, textTransform: 'uppercase', color: C.label },
+  h1: { fontFamily: 'Plex', fontWeight: 700, fontSize: 26, lineHeight: 1.15, color: C.ink },
+  h2: { fontFamily: 'Plex', fontWeight: 700, fontSize: 11, letterSpacing: 0.9, textTransform: 'uppercase', color: C.olive },
   p: { fontSize: 10.5, lineHeight: 1.6, marginBottom: 8 },
   small: { fontSize: 8.5, color: C.muted },
-  pill: { alignSelf: 'flex-start', fontSize: 9, fontWeight: 600, paddingVertical: 4, paddingHorizontal: 9, borderRadius: 10 },
-  th: { fontSize: 7.5, fontWeight: 600, letterSpacing: 0.8, textTransform: 'uppercase', color: C.muted },
+  pill: { alignSelf: 'flex-start', fontSize: 9, fontWeight: 600, paddingVertical: 4, paddingHorizontal: 9, borderRadius: 2 },
+  th: { fontFamily: 'Plex', fontWeight: 600, fontSize: 7, letterSpacing: 0.7, textTransform: 'uppercase', color: C.label },
   num: { textAlign: 'right' },
 });
 
 // ---------- дрібні елементи ----------
-function Stripes({ width, height, gap = 9, bar = 4, color = C.olive, opacity = 1 }: { width: number; height: number; gap?: number; bar?: number; color?: string; opacity?: number }) {
-  const dx = height * TAN;
-  const n = Math.ceil((width + dx) / gap);
-  return (
-    <Svg width={width} height={height} viewBox={`0 0 ${width} ${height}`}>
-      {Array.from({ length: n }, (_, i) => {
-        const x = i * gap - dx;
-        return <Polygon key={i} points={`${x},${height} ${x + dx},0 ${x + dx + bar},0 ${x + bar},${height}`} fill={color} fillOpacity={opacity} />;
-      })}
-    </Svg>
-  );
-}
 function Marker() {
   const h = 11, dx = h * TAN;
   return <Svg width={9} height={h} viewBox={`0 0 9 ${h}`}><Polygon points={`0,${h} ${dx},0 ${dx + 4.4},0 4.4,${h}`} fill={C.olive} /></Svg>;
@@ -76,25 +69,28 @@ function Section({ title, children, breakBefore, keepWithNext = 80 }: { title: s
     <View break={breakBefore} style={{ marginBottom: 18 }}>
       {/* заголовок не лишається сам унизу сторінки */}
       <View wrap={false} minPresenceAhead={keepWithNext} style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 10 }}>
-        <Marker /><Text style={[s.h2, { marginLeft: 7 }]}>{title}</Text>
+        <Marker />
+        <Text style={[s.h2, { marginLeft: 7 }]}>{title}</Text>
+        <View style={{ flex: 1, height: 1, backgroundColor: C.sage, marginLeft: 10 }} />
       </View>
       {children}
     </View>
   );
 }
-function Figure({ value, label, big }: { value: string; label: string; big?: boolean }) {
+function Figure({ value, label }: { value: string; label: string }) {
   return (
     <View style={{ flex: 1 }}>
-      <Text style={{ fontFamily: 'Unbounded', fontWeight: 600, fontSize: big ? 24 : 17, color: C.ink, lineHeight: 1.1 }}>{value}</Text>
-      <Text style={[s.small, { marginTop: 4 }]}>{label}</Text>
+      <Text style={{ fontFamily: 'Plex', fontWeight: 700, fontSize: 22, color: C.olive, lineHeight: 1.1 }}>{value}</Text>
+      <Text style={[s.small, { marginTop: 4, color: C.label }]}>{label}</Text>
     </View>
   );
 }
 const statusPill = (m: DonorReportModel) =>
   m.handedOverOn
-    ? { text: m.unit ? `Передано: ${m.unit} · ${m.handedOverOn}` : `Передано військовим · ${m.handedOverOn}`, fg: C.green, bg: C.greenBg }
-    : m.status === 'Готовий' ? { text: m.unit ? `Ремонт завершено · передаємо: ${m.unit}` : 'Ремонт завершено · чекає на передачу', fg: C.green, bg: C.greenBg }
-    : { text: m.status, fg: C.amber, bg: C.amberBg };
+    ? { text: m.unit ? `Передано: ${m.unit} · ${m.handedOverOn}` : `Передано військовим · ${m.handedOverOn}`, fg: C.ok, bg: C.okBg }
+    : m.status === 'Готовий' ? { text: m.unit ? `Ремонт завершено · передаємо: ${m.unit}` : 'Ремонт завершено · чекає на передачу', fg: C.ok, bg: C.okBg }
+    : { text: m.status, fg: C.warn, bg: C.warnBg };
+const avtoNumber = (id: string) => /(\d+)\s*$/.exec(id)?.[1] ?? id;
 
 // ---------- сторінки ----------
 function Cover({ m }: { m: DonorReportModel }) {
@@ -109,43 +105,50 @@ function Cover({ m }: { m: DonorReportModel }) {
   ];
   return (
     <View>
-      <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-        <Text style={s.kicker}>{BRAND.fund} · {BRAND.project}</Text>
-        <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-          {m.draft && <Text style={[s.draftPill, { marginRight: 8 }]}>ЧЕРНЕТКА</Text>}
-          <Text style={s.kicker}>Звіт № {m.reportNo} · {m.generatedOn}</Text>
+      {/* шапка на всю ширину аркуша — як в інструкції на кермі */}
+      <View style={{ marginTop: -PAD_TOP, marginHorizontal: -PAD_X, backgroundColor: C.olive, paddingVertical: 20, paddingHorizontal: PAD_X, flexDirection: 'row', alignItems: 'center' }}>
+        <BazaLogo height={50} />
+        <View style={{ width: 1, height: 50, backgroundColor: C.green, marginHorizontal: 16 }} />
+        <View>
+          <Text style={{ fontFamily: 'Plex', fontWeight: 700, fontSize: 19, lineHeight: 1.1, color: C.white }}>ЗВІТ</Text>
+          <Text style={{ fontFamily: 'Plex', fontWeight: 700, fontSize: 19, lineHeight: 1.1, color: C.sage }}>ПРО РЕМОНТ</Text>
+          <Text style={{ fontFamily: 'Plex', fontWeight: 600, fontSize: 7.5, letterSpacing: 0.6, color: C.sageLight, marginTop: 4 }}>МЕРЕЖА СТО «БАЗА» · БФ «ТИХО»</Text>
+        </View>
+        <View style={{ marginLeft: 'auto', borderWidth: 1.5, borderColor: C.sage, paddingVertical: 5, paddingHorizontal: 10, alignItems: 'center' }}>
+          <Text style={{ fontFamily: 'Plex', fontWeight: 600, fontSize: 8, letterSpacing: 1, color: C.sage }}>АВТО</Text>
+          <Text style={{ fontFamily: 'Plex', fontWeight: 700, fontSize: 22, color: C.white, lineHeight: 1.1 }}>{avtoNumber(m.reportNo)}</Text>
         </View>
       </View>
-      <View style={{ marginTop: 14, marginBottom: 26 }}><Stripes width={W} height={8} /></View>
-      <Text style={[s.kicker, { color: C.olive, fontSize: 9, marginBottom: 8 }]}>Звіт про ремонт</Text>
-      <Text style={s.h1}>{m.vehicle.name}</Text>
+      <View style={{ marginHorizontal: -PAD_X }}><Stripes width={PAGE_W} height={6} background={C.olive} /></View>
+
+      <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 14 }}>
+        <Text style={s.kicker}>Звіт № {m.reportNo} · {m.generatedOn}</Text>
+        {m.draft && <Text style={{ fontFamily: 'Plex', fontWeight: 700, fontSize: 7.5, letterSpacing: 1, color: C.warn, backgroundColor: C.warnBg, paddingVertical: 3, paddingHorizontal: 7 }}>ЧЕРНЕТКА</Text>}
+      </View>
+      <Text style={[s.h1, { marginTop: 16 }]}>{m.vehicle.name}</Text>
       {(m.vehicle.type || m.vehicle.purpose) && (
-        <Text style={{ fontSize: 11, color: C.muted, marginTop: 8 }}>
+        <Text style={{ fontSize: 11, color: C.label, marginTop: 6 }}>
           {[m.vehicle.type, m.vehicle.purpose ? `завдання: ${m.vehicle.purpose}` : null].filter(Boolean).join(' · ')}
         </Text>
       )}
-      <Text style={[s.pill, { color: pill.fg, backgroundColor: pill.bg, marginTop: 14 }]}>{pill.text}</Text>
+      <Text style={[s.pill, { color: pill.fg, backgroundColor: pill.bg, marginTop: 12 }]}>{pill.text}</Text>
 
       {hero ? (
-        <View style={{ marginTop: 22 }}>
-          <Image src={hero.src} style={{ width: W, height: 250, objectFit: 'cover', borderRadius: 6 }} />
-          <View style={{ flexDirection: 'row', marginTop: 18 }}>{figures.map(x => <Figure key={x.label} {...x} />)}</View>
+        <View style={{ marginTop: 20 }}>
+          <Image src={hero.src} style={{ width: W, height: 240, objectFit: 'cover' }} />
+          <View style={{ flexDirection: 'row', marginTop: 16 }}>{figures.map(x => <Figure key={x.label} {...x} />)}</View>
         </View>
       ) : (
-        <View style={{ marginTop: 22, backgroundColor: C.khaki, borderRadius: 6, padding: 22, position: 'relative' }}>
-          <View style={{ position: 'absolute', right: 0, top: 0, bottom: 0, width: 120, overflow: 'hidden', borderTopRightRadius: 6, borderBottomRightRadius: 6 }}>
-            <Stripes width={120} height={232} gap={13} bar={5} color={C.oliveSoft} opacity={0.35} />
+        <View style={{ marginTop: 20, backgroundColor: C.tint, borderWidth: 1, borderColor: C.border, padding: 20, position: 'relative' }}>
+          <View style={{ position: 'absolute', right: 0, top: 0, bottom: 0, width: 110, overflow: 'hidden' }}>
+            <Stripes width={110} height={220} gap={18} bar={7} color={C.sage} opacity={0.45} />
           </View>
           <Text style={[s.kicker, { color: C.olive, marginBottom: 14 }]}>Ремонт у цифрах</Text>
-          <View style={{ flexDirection: 'row', marginBottom: 20, paddingRight: 110 }}>
-            <Figure big {...figures[0]} /><Figure big {...figures[1]} />
-          </View>
-          <View style={{ flexDirection: 'row', paddingRight: 110 }}>
-            <Figure big {...figures[2]} /><Figure big {...figures[3]} />
-          </View>
+          <View style={{ flexDirection: 'row', marginBottom: 18, paddingRight: 100 }}><Figure {...figures[0]} /><Figure {...figures[1]} /></View>
+          <View style={{ flexDirection: 'row', paddingRight: 100 }}><Figure {...figures[2]} /><Figure {...figures[3]} /></View>
         </View>
       )}
-      <View style={{ height: 26 }} />
+      <View style={{ height: 24 }} />
     </View>
   );
 }
@@ -156,7 +159,7 @@ function Timeline({ m }: { m: DonorReportModel }) {
   return (
     <View wrap={false} style={{ marginTop: 6, marginBottom: 4 }}>
       <View style={{ position: 'relative', height: 14 }}>
-        <View style={{ position: 'absolute', left: 6, right: 6, top: 6, height: 1.5, backgroundColor: C.oliveSoft }} />
+        <View style={{ position: 'absolute', left: 6, right: 6, top: 6, height: 1.5, backgroundColor: C.sage }} />
         <View style={{ flexDirection: 'row' }}>
           {t.map((e, i) => (
             <View key={i} style={{ flex: 1, alignItems: i === 0 ? 'flex-start' : i === t.length - 1 ? 'flex-end' : 'center' }}>
@@ -170,8 +173,8 @@ function Timeline({ m }: { m: DonorReportModel }) {
           const align = i === 0 ? 'left' : i === t.length - 1 ? 'right' : 'center';
           return (
             <View key={i} style={{ flex: 1, paddingHorizontal: 2 }}>
-              <Text style={{ fontSize: 9.5, fontWeight: 600, textAlign: align }}>{e.date}</Text>
-              <Text style={{ fontSize: 8.5, color: C.muted, textAlign: align }}>{e.label}</Text>
+              <Text style={{ fontFamily: 'Plex', fontWeight: 600, fontSize: 9, textAlign: align }}>{e.date}</Text>
+              <Text style={{ fontSize: 8.5, color: C.label, textAlign: align }}>{e.label}</Text>
             </View>
           );
         })}
@@ -184,16 +187,16 @@ function Works({ m }: { m: DonorReportModel }) {
   if (!m.works.length) return <Text style={s.small}>Робіт не записано.</Text>;
   return (
     <View>
-      <View style={{ flexDirection: 'row', paddingBottom: 5, borderBottomWidth: 0.75, borderBottomColor: C.ink }}>
+      <View style={{ flexDirection: 'row', paddingBottom: 5, borderBottomWidth: 1, borderBottomColor: C.olive }}>
         <Text style={[s.th, { width: 22 }]}>№</Text><Text style={[s.th, { flex: 1 }]}>Робота</Text>
-        <Text style={[s.th, { width: 120 }]}>Коли</Text><Text style={[s.th, s.num, { width: 40 }]}>Днів</Text>
+        <Text style={[s.th, { width: 122 }]}>Коли</Text><Text style={[s.th, s.num, { width: 40 }]}>Днів</Text>
       </View>
       {m.works.map((w, i) => (
         <View key={i} wrap={false} style={{ flexDirection: 'row', paddingVertical: 6, borderBottomWidth: 0.5, borderBottomColor: C.line }}>
-          <Text style={{ width: 22, color: C.faint }}>{i + 1}</Text>
+          <Text style={[s.mono, { width: 22, color: C.faint, fontSize: 9 }]}>{String(i + 1).padStart(2, '0')}</Text>
           <Text style={{ flex: 1, paddingRight: 8 }}>{w.title}{w.done ? '' : '  (ще триває)'}</Text>
-          <Text style={{ width: 120, color: C.muted }}>{w.period ?? '—'}</Text>
-          <Text style={[s.num, { width: 40 }]}>{w.days ?? '—'}</Text>
+          <Text style={{ width: 122, color: C.muted, fontSize: 9.5 }}>{w.period ?? '—'}</Text>
+          <Text style={[s.num, s.mono, { width: 40, fontSize: 9.5 }]}>{w.days ?? '—'}</Text>
         </View>
       ))}
     </View>
@@ -209,7 +212,7 @@ function Parts({ m }: { m: DonorReportModel }) {
       {xs.map((p, i) => (
         <View key={i} wrap={false} style={{ flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 5, borderBottomWidth: 0.5, borderBottomColor: C.line }}>
           <Text style={{ flex: 1, paddingRight: 6 }}>{p.name}</Text>
-          <Text style={{ color: C.muted }}>× {p.qty}</Text>
+          <Text style={[s.mono, { color: C.label, fontSize: 9 }]}>× {p.qty}</Text>
         </View>
       ))}
     </View>
@@ -225,58 +228,56 @@ function Money({ m }: { m: DonorReportModel }) {
   return (
     <View>
       <View wrap={false}>
-      <View style={{ flexDirection: 'row', alignItems: 'flex-end', marginBottom: 24 }}>
-        <View style={{ flex: 1 }}>
-          <Text style={s.kicker}>Усього на це авто</Text>
-          <Text style={{ fontFamily: 'Unbounded', fontWeight: 600, fontSize: 26, lineHeight: 1.2, marginTop: 4 }}>{money(f.total)}</Text>
-        </View>
-        <View style={{ width: 190 }}>
-          <Text style={{ fontSize: 9.5, color: C.green, textAlign: 'right' }}>оплачено {money(f.paid)}</Text>
-          {f.pending > 0 && <Text style={{ fontSize: 9.5, color: C.amber, textAlign: 'right', marginTop: 2 }}>в процесі оплати {money(f.pending)}</Text>}
-        </View>
-      </View>
-
-      <Text style={[s.kicker, { marginBottom: 8 }]}>На що витрачено</Text>
-      {m.spend.map(x => (
-        <View key={x.category} wrap={false} style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 7 }}>
-          <Text style={{ width: 92, fontSize: 9.5 }}>{x.category}</Text>
-          <View style={{ flex: 1, height: 11, backgroundColor: C.sand, borderRadius: 2 }}>
-            <View style={{ width: `${Math.max(1.5, (x.share / maxShare) * 100)}%`, height: 11, backgroundColor: C.olive, borderRadius: 2 }} />
+        <View style={{ flexDirection: 'row', alignItems: 'flex-end', marginBottom: 22 }}>
+          <View style={{ flex: 1 }}>
+            <Text style={s.kicker}>Усього на це авто</Text>
+            <Text style={{ fontFamily: 'Plex', fontWeight: 700, fontSize: 24, lineHeight: 1.2, marginTop: 4, color: C.ink }}>{money(f.total)}</Text>
           </View>
-          <Text style={{ width: 92, textAlign: 'right', fontSize: 9.5, fontWeight: 600 }}>{money(x.amount)}</Text>
-          <Text style={{ width: 34, textAlign: 'right', fontSize: 8.5, color: C.muted }}>{Math.round(x.share * 100)}%</Text>
+          <View style={{ width: 200 }}>
+            <Text style={{ fontSize: 9.5, color: C.ok, textAlign: 'right' }}>оплачено {money(f.paid)}</Text>
+            {f.pending > 0 && <Text style={{ fontSize: 9.5, color: C.warn, textAlign: 'right', marginTop: 2 }}>в процесі оплати {money(f.pending)}</Text>}
+          </View>
         </View>
-      ))}
-
-      {m.sources.length > 0 && (
-        <Text style={[s.small, { marginTop: 10 }]}>
-          Джерела коштів: <Text style={{ color: C.ink }}>{m.sources.map(x => `${x.source} — ${money(x.amount)}`).join('  ·  ')}</Text>
-        </Text>
-      )}
+        <Text style={[s.kicker, { marginBottom: 8 }]}>На що витрачено</Text>
+        {m.spend.map(x => (
+          <View key={x.category} style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 7 }}>
+            <Text style={{ width: 92, fontSize: 9.5 }}>{x.category}</Text>
+            <View style={{ flex: 1, height: 11, backgroundColor: C.tint2 }}>
+              <View style={{ width: `${Math.max(1.5, (x.share / maxShare) * 100)}%`, height: 11, backgroundColor: C.olive }} />
+            </View>
+            <Text style={{ width: 94, textAlign: 'right', fontSize: 9.5, fontWeight: 600 }}>{money(x.amount)}</Text>
+            <Text style={[s.mono, { width: 34, textAlign: 'right', fontSize: 8.5, color: C.label }]}>{Math.round(x.share * 100)}%</Text>
+          </View>
+        ))}
+        {m.sources.length > 0 && (
+          <Text style={[s.small, { marginTop: 10 }]}>
+            Джерела коштів: <Text style={{ color: C.ink }}>{m.sources.map(x => `${x.source} — ${money(x.amount)}`).join('  ·  ')}</Text>
+          </Text>
+        )}
       </View>
 
       {inv && (
         // коротка таблиця переноситься на нову сторінку цілою; довга — рядками
         <View wrap={inv.length > 18} style={{ marginTop: 22 }}>
           <Text minPresenceAhead={60} style={[s.kicker, { marginBottom: 6 }]}>Кожна витрата окремо</Text>
-          <View style={{ flexDirection: 'row', paddingBottom: 5, borderBottomWidth: 0.75, borderBottomColor: C.ink }}>
-            <Text style={[s.th, { width: 58 }]}>Дата</Text><Text style={[s.th, { flex: 1 }]}>На що</Text>
+          <View style={{ flexDirection: 'row', paddingBottom: 5, borderBottomWidth: 1, borderBottomColor: C.olive }}>
+            <Text style={[s.th, { width: 60 }]}>Дата</Text><Text style={[s.th, { flex: 1 }]}>На що</Text>
             <Text style={[s.th, { width: 74 }]}>Стаття</Text><Text style={[s.th, s.num, { width: 84 }]}>Сума</Text>
-            <Text style={[s.th, s.num, { width: 70 }]}>Оплата</Text>
+            <Text style={[s.th, s.num, { width: 66 }]}>Оплата</Text>
           </View>
           {inv.map((r, i) => (
-            <View key={r.id} wrap={false} style={{ flexDirection: 'row', paddingVertical: 5.5, paddingHorizontal: 0, backgroundColor: i % 2 ? C.white : C.sand, borderBottomWidth: 0.5, borderBottomColor: C.line }}>
-              <Text style={{ width: 58, fontSize: 9, color: C.muted, paddingLeft: 3 }}>{r.date ?? '—'}</Text>
+            <View key={r.id} wrap={false} style={{ flexDirection: 'row', paddingVertical: 5.5, backgroundColor: i % 2 ? C.white : C.tint2, borderBottomWidth: 0.5, borderBottomColor: C.line }}>
+              <Text style={[s.mono, { width: 60, fontSize: 8.5, color: C.label, paddingLeft: 3 }]}>{r.date ?? '—'}</Text>
               <Text style={{ flex: 1, fontSize: 9.5, paddingRight: 6 }}>{r.label}</Text>
               <Text style={{ width: 74, fontSize: 9, color: C.muted }}>{r.category}</Text>
               <Text style={[s.num, { width: 84, fontSize: 9.5 }]}>{money(r.amount)}</Text>
-              <Text style={[s.num, { width: 70, fontSize: 8.5, color: r.paid ? C.green : C.amber, paddingRight: 3 }]}>{r.paid ? 'оплачено' : 'в процесі'}</Text>
+              <Text style={[s.num, { width: 66, fontSize: 8.5, color: r.paid ? C.ok : C.warn, paddingRight: 3 }]}>{r.paid ? 'оплачено' : 'в процесі'}</Text>
             </View>
           ))}
           <View wrap={false} style={{ flexDirection: 'row', paddingTop: 7 }}>
             <Text style={{ flex: 1, fontWeight: 700, paddingLeft: 3 }}>Разом</Text>
             <Text style={[s.num, { width: 84, fontWeight: 700 }]}>{money(f.total)}</Text>
-            <View style={{ width: 70 }} />
+            <View style={{ width: 66 }} />
           </View>
         </View>
       )}
@@ -295,9 +296,9 @@ function Photos({ m }: { m: DonorReportModel }) {
     <View style={{ flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between' }}>
       {xs.map((im, i) => (
         <View key={i} wrap={false} style={{ width: w, marginBottom: 14 }}>
-          <Image src={im.src} style={{ width: w, height: w * 0.66, objectFit: 'cover', borderRadius: 4 }} />
+          <Image src={im.src} style={{ width: w, height: w * 0.66, objectFit: 'cover' }} />
           <Text style={[s.small, { marginTop: 4 }]}>
-            {im.kind ? <Text style={{ fontWeight: 700, color: C.olive }}>{im.kind === 'до' ? 'ДО  ' : 'ПІСЛЯ  '}</Text> : null}{im.caption ?? ''}
+            {im.kind ? <Text style={{ fontFamily: 'Plex', fontWeight: 700, color: C.olive }}>{im.kind === 'до' ? 'ДО  ' : 'ПІСЛЯ  '}</Text> : null}{im.caption ?? ''}
           </Text>
         </View>
       ))}
@@ -309,12 +310,12 @@ function Thanks({ m }: { m: DonorReportModel }) {
   // Закриваючий блок не розриваємо між сторінками.
   return (
     <View wrap={false} style={{ marginTop: 6 }}>
-      <View style={{ backgroundColor: C.khaki, borderRadius: 6, padding: 18, flexDirection: 'row' }}>
-        <View style={{ width: 30, marginRight: 14, overflow: 'hidden' }}><Stripes width={30} height={96} gap={10} bar={4} color={C.olive} /></View>
+      <View style={{ backgroundColor: C.tint, borderLeftWidth: 4, borderLeftColor: C.green, padding: 18, flexDirection: 'row' }}>
+        <View style={{ marginRight: 16, paddingTop: 2 }}><BazaLogo height={34} color={C.olive} /></View>
         <View style={{ flex: 1 }}>
-          <Text style={{ fontFamily: 'Unbounded', fontWeight: 600, fontSize: 16, marginBottom: 6 }}>Дякуємо</Text>
+          <Text style={{ fontFamily: 'Plex', fontWeight: 700, fontSize: 14, letterSpacing: 0.5, color: C.olive, marginBottom: 6 }}>ДЯКУЄМО</Text>
           <Text style={{ fontSize: 10.5, lineHeight: 1.5 }}>{m.thanks}</Text>
-          <Text style={{ marginTop: 8, fontSize: 8.5, color: C.olive }}>{BRAND.site} · {BRAND.socials}</Text>
+          <Text style={{ marginTop: 8, fontSize: 8.5, color: C.label }}>{BRAND.site} · {BRAND.socials}</Text>
         </View>
       </View>
       <Text style={{ marginTop: 10, fontSize: 9, lineHeight: 1.5, color: C.muted }}>{m.about}</Text>
@@ -327,11 +328,11 @@ export function DonorReportDocument({ m }: { m: DonorReportModel }) {
     <Document title={`Звіт про ремонт — ${m.vehicle.name}`} author={BRAND.fundFull} subject={`${BRAND.project}: звіт для донорів`} language="uk" creator="СТО «База»" producer="СТО «База»">
       <Page size="A4" style={s.page}>
         {/* колонтитули — першими: fixed-елементи повторюються з тієї сторінки, де з'явились */}
-        <Text fixed style={s.runHead} render={({ pageNumber }) => (pageNumber > 1 ? `${m.vehicle.name} · звіт про ремонт` : '')} />
+        <Text fixed style={s.runHead} render={({ pageNumber }) => (pageNumber > 1 ? `${m.vehicle.name.toUpperCase()} · ЗВІТ ПРО РЕМОНТ · АВТО-${avtoNumber(m.reportNo)}` : '')} />
         <View fixed style={s.foot}>
-          <Text>{BRAND.fund} · {BRAND.project} · {BRAND.site}</Text>
-          {m.draft && <Text style={{ color: C.amber, fontWeight: 600 }}>ЧЕРНЕТКА — перевірте перед відправленням</Text>}
-          <Text render={({ pageNumber, totalPages }) => `${pageNumber} / ${totalPages}`} />
+          <Text>Мережа СТО «База» · БФ «Тихо»</Text>
+          {m.draft && <Text style={{ color: C.warnOnDark, fontWeight: 600 }}>ЧЕРНЕТКА — перевірте перед відправленням</Text>}
+          <Text style={{ color: C.sage }} render={({ pageNumber, totalPages }) => `${BRAND.site} · ${pageNumber} / ${totalPages}`} />
         </View>
         <Cover m={m} />
         <Section title="Історія ремонту">

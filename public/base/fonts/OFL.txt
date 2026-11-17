@@ -1,5 +1,5 @@
-Inter — Copyright 2020 The Inter Project Authors. Unbounded — Copyright 2022 The Unbounded Project Authors.
-Обидва шрифти поширюються за SIL Open Font License 1.1 (текст нижче).
+Inter — Copyright 2020 The Inter Project Authors. IBM Plex Mono — Copyright © 2017 IBM Corp. with Reserved Font Name "Plex".
+Обидва шрифти поширюються за SIL Open Font License 1.1 (текст нижче). IBM Plex Mono — з офіційного пакета @ibm/plex-mono 1.1.0 (WOFF перетворено на TTF без змін гліфів).
 
 Copyright 2020 The Inter Project Authors (https://github.com/rsms/inter)
 
