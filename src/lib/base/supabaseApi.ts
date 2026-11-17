@@ -1,7 +1,7 @@
 // Реалізація BaseApi поверх supabase-js. Права забезпечує RLS у базі, а не цей код:
 // тут лише запити. Перевіряється на живій базі під час інтеграції (див. INTEGRATION.md).
 import type { SupabaseClient } from '@supabase/supabase-js';
-import type { DonorReportPatch, DonorReportRow, PendingReport, NewJob, NewPart, BaseApi, Role, StatusPatch, Vehicle, VehicleDetail, VehicleSummary, Job, Part, FinanceItem, DocumentItem } from './types';
+import type { DonorReportPatch, DonorReportRow, PendingReport, VehiclePhotos, NewJob, NewPart, BaseApi, Role, StatusPatch, Vehicle, VehicleDetail, VehicleSummary, Job, Part, FinanceItem, DocumentItem } from './types';
 
 function check<T>(res: { data: T | null; error: { message: string } | null }, what: string): T {
   if (res.error) throw new Error(`${what}: ${res.error.message}`);
@@ -56,6 +56,12 @@ export function createSupabaseApi(sb: SupabaseClient): BaseApi {
       const r = await sb.storage.from('base-files').createSignedUrl(path, 300);
       if (r.error || !r.data) throw new Error(`Файл: ${r.error?.message ?? 'немає доступу'}`);
       return r.data.signedUrl;
+    },
+    async listVehiclePhotos(vehicleId): Promise<VehiclePhotos> {
+      // функція supabase/functions/base-drive: Drive через сервісний акаунт «Штабу»
+      const r = await sb.functions.invoke('base-drive', { body: { action: 'list', vehicle: vehicleId } });
+      if (r.error) throw new Error(`Фото з Google Drive: ${r.error.message}`);
+      return r.data as VehiclePhotos;
     },
     async addJob(i: NewJob): Promise<Job> {
       const r = await sb.from('base_jobs').insert({ status: 'Заплановано', ...i }).select('*').single();

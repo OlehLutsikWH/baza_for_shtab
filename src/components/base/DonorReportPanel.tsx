@@ -3,11 +3,11 @@
 // перевірити статті та підписи витрат, обрати фото, сформувати PDF.
 import { useEffect, useMemo, useState } from 'react';
 import { useBaseApi } from '../../lib/base/context';
-import type { DonorReportPatch, DonorReportRow, FinanceItem, ReportPhoto, VehicleDetail } from '../../lib/base/types';
+import type { DonorReportPatch, DonorReportRow, FinanceItem, ReportPhoto, VehicleDetail, VehiclePhotos } from '../../lib/base/types';
 import { buildDonorReport, money, dateUa, type ReportImage } from '../../lib/base/report/model';
 import { FINANCE_CATEGORIES, categoryOf } from '../../lib/base/report/categories';
 import { BRAND } from '../../lib/base/report/brand';
-import { REPORT_IMAGE_EXT } from '../../lib/base/config';
+import { drivePath, driveIdOf, kindFromGroup } from '../../lib/base/photos';
 import { saveFile } from '../../lib/base/files';
 
 interface Form {
@@ -32,6 +32,8 @@ export function DonorReportPanel({ detail, now }: { detail: VehicleDetail; now: 
   const [form, setForm] = useState<Form | null>(null);
   const [finance, setFinance] = useState<FinanceItem[]>(detail.finance ?? []);
   const [shared, setShared] = useState(0);
+  const [drive, setDrive] = useState<VehiclePhotos | null>(null);
+  const [driveError, setDriveError] = useState<string | null>(null);
   const [busy, setBusy] = useState<null | 'save' | 'draft' | 'final' | 'create'>(null);
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
 
@@ -44,10 +46,12 @@ export function DonorReportPanel({ detail, now }: { detail: VehicleDetail; now: 
         setShared((all ?? []).filter(f => f.scope === 'shared').length);
       })
       .catch(e => { if (!off) { setReport(null); setMsg({ ok: false, text: e instanceof Error ? e.message : String(e) }); } });
+    api.listVehiclePhotos(v.id)
+      .then(r => { if (!off) setDrive(r); })
+      .catch(e => { if (!off) setDriveError(e instanceof Error ? e.message : String(e)); });
     return () => { off = true; };
   }, [api, v.id]);
 
-  const photos = useMemo(() => detail.documents.filter(d => d.storage_path && REPORT_IMAGE_EXT.test(d.storage_path)), [detail.documents]);
   const partNames = useMemo(() => detail.parts.map(p => p.name), [detail.parts]);
   const model = useMemo(() => {
     if (!report || !form) return null;
@@ -96,8 +100,8 @@ export function DonorReportPanel({ detail, now }: { detail: VehicleDetail; now: 
       setFinance(xs => xs.map(x => (x.id === f.id ? { ...x, category } : x)));
     } catch (e) { setMsg({ ok: false, text: e instanceof Error ? e.message : String(e) }); }
   }
-  function togglePhoto(path: string, on: boolean) {
-    set({ photo_paths: on ? [...form!.photo_paths, { path, kind: null, caption: null }] : form!.photo_paths.filter(p => p.path !== path) });
+  function togglePhoto(path: string, on: boolean, group: string | null) {
+    set({ photo_paths: on ? [...form!.photo_paths, { path, kind: kindFromGroup(group), caption: null }] : form!.photo_paths.filter(p => p.path !== path) });
   }
   function patchPhoto(path: string, patch: Partial<ReportPhoto>) {
     set({ photo_paths: form!.photo_paths.map(p => (p.path === path ? { ...p, ...patch } : p)) });
@@ -106,14 +110,26 @@ export function DonorReportPanel({ detail, now }: { detail: VehicleDetail; now: 
     setBusy(final ? 'final' : 'draft'); setMsg(null);
     try {
       const saved = await save();
-      const images: ReportImage[] = await Promise.all(saved.photo_paths.map(async p => ({ src: await api.signedUrl(p.path), caption: p.caption ?? null, kind: p.kind ?? null })));
+      // посилання на фото з Drive діють ~1 год, тому беремо свіжі саме перед формуванням
+      let skipped = 0;
+      const images: ReportImage[] = [];
+      if (saved.photo_paths.length) {
+        const fresh = await api.listVehiclePhotos(v.id);
+        const byId = new Map(fresh.photos.map(p => [p.id, p] as const));
+        for (const p of saved.photo_paths) {
+          const id = driveIdOf(p.path);
+          const ph = id ? byId.get(id) : undefined;
+          if (ph) images.push({ src: ph.full, caption: p.caption ?? null, kind: p.kind ?? null }); else skipped++;
+        }
+      }
       const m = buildDonorReport({ vehicle: v, jobs: detail.jobs, parts: detail.parts, finance, report: saved, now, images, sharedUnallocated: shared, final });
       const { renderDonorReportPdf, reportFileName } = await import('../../lib/base/report/render');
       const blob = await renderDonorReportPdf(m);
       const name = reportFileName(v.id, now, !final);
       if (final) setReport(await api.storeReportPdf(v.id, blob, name));
       await saveFile(name, blob, 'application/pdf');
-      setMsg({ ok: true, text: final ? `Фінальний звіт сформовано: ${name}` : `Чернетку сформовано: ${name}` });
+      const note = skipped ? ` ${skipped} ${skipped === 1 ? 'вибране фото вже зникло' : 'вибраних фото вже зникли'} з Drive — їх пропущено.` : '';
+      setMsg({ ok: true, text: (final ? `Фінальний звіт сформовано: ${name}.` : `Чернетку сформовано: ${name}.`) + note });
     } catch (e) {
       setMsg({ ok: false, text: `Не вдалося сформувати PDF: ${e instanceof Error ? e.message : String(e)}` });
     } finally { setBusy(null); }
@@ -184,27 +200,36 @@ export function DonorReportPanel({ detail, now }: { detail: VehicleDetail; now: 
         </table></div>
       )}
 
-      <h3 className="base-h3 base-gap">Фото</h3>
-      {photos.length === 0 ? (
-        <p className="base-muted">Фото з'являться тут, коли їх перенесуть з Google Drive у сховище (лише JPG і PNG).</p>
-      ) : (
-        <ul className="base-plain">{photos.map(d => {
-          const sel = form.photo_paths.find(p => p.path === d.storage_path);
-          return (
-            <li key={d.id} className="base-photo">
-              <label className="base-check"><input type="checkbox" checked={!!sel} onChange={e => togglePhoto(d.storage_path!, e.target.checked)} /> {d.storage_path!.split('/').pop()}</label>
-              {sel && (
-                <div className="base-photo__opts">
-                  <select aria-label="До чи після" value={sel.kind ?? ''} onChange={e => patchPhoto(sel.path, { kind: (e.target.value || null) as ReportPhoto['kind'] })}>
-                    <option value="">—</option><option value="до">До ремонту</option><option value="після">Після ремонту</option>
-                  </select>
-                  <input type="text" aria-label="Підпис до фото" placeholder="Підпис до фото" value={sel.caption ?? ''} onChange={e => patchPhoto(sel.path, { caption: e.target.value })} />
-                </div>
-              )}
-            </li>
-          );
-        })}</ul>
-      )}
+      <h3 className="base-h3 base-gap">Фото для звіту</h3>
+      {driveError ? <p role="alert" className="base-error">Не вдалося отримати фото з Google Drive: {driveError}</p>
+        : !drive ? <p className="base-muted">Завантажую фото з Google Drive…</p>
+        : drive.photos.length === 0 ? (
+          <p className="base-muted">{drive.folder ? `У папці «${drive.folder.name}» на Google Drive ще немає фото.` : `На Google Drive немає папки «${v.id} …» у «Фото».`}</p>
+        ) : (
+          <>
+            <p className="base-muted">Оберіть кілька фото «до» і «після». Перше фото «після» піде на обкладинку.</p>
+            <ul className="base-photos base-photos--pick">{drive.photos.map(ph => {
+              const path = drivePath(ph.id);
+              const sel = form.photo_paths.find(p => p.path === path);
+              return (
+                <li key={ph.id} className={sel ? 'is-selected' : ''}>
+                  <label>
+                    <img src={ph.thumb} alt={ph.name} loading="lazy" />
+                    <span className="base-photos__check"><input type="checkbox" checked={!!sel} onChange={e => togglePhoto(path, e.target.checked, ph.group)} aria-label={`Додати у звіт: ${ph.name}`} /> {ph.group ?? ph.name}</span>
+                  </label>
+                  {sel && (
+                    <div className="base-photo__opts">
+                      <select aria-label={`До чи після: ${ph.name}`} value={sel.kind ?? ''} onChange={e => patchPhoto(path, { kind: (e.target.value || null) as ReportPhoto['kind'] })}>
+                        <option value="">—</option><option value="до">До ремонту</option><option value="після">Після ремонту</option>
+                      </select>
+                      <input type="text" aria-label={`Підпис до фото: ${ph.name}`} placeholder="Підпис до фото" value={sel.caption ?? ''} onChange={e => patchPhoto(path, { caption: e.target.value })} />
+                    </div>
+                  )}
+                </li>
+              );
+            })}</ul>
+          </>
+        )}
 
       <div className="base-actions base-gap">
         <button type="button" className="base-secondary" disabled={busy !== null} onClick={onSave}>{busy === 'save' ? 'Зберігаю…' : 'Зберегти'}</button>

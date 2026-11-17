@@ -44,8 +44,12 @@ export interface StatusPatch { status?: string; blocker?: string | null; next_st
 export interface NewJob { vehicle_id: string; description: string; executor?: string | null; location?: string | null; status?: string; notes?: string | null }
 export interface NewPart { vehicle_id: string; name: string; qty: number; supplier?: string | null; status?: string; notes?: string | null }
 
-/** Фото для звіту: файл у Storage (vehicles/<ID>/…), підпис і «до»/«після». */
+/** Фото для звіту: «drive:<id файлу>» (фото з Google Drive), підпис і «до»/«після». */
 export interface ReportPhoto { path: string; caption?: string | null; kind?: 'до' | 'після' | null }
+
+/** Фото авто з Google Drive (функція base-drive «Штабу»). thumb/full — тимчасові посилання (~1 год). */
+export interface DrivePhoto { id: string; name: string; mimeType: string; takenAt: string | null; group: string | null; thumb: string; full: string }
+export interface VehiclePhotos { folder: { id: string; name: string; url: string | null } | null; photos: DrivePhoto[]; truncated?: boolean }
 
 /** Те, що керівник дописав до звіту для донорів (таблиця base_donor_reports). */
 export interface DonorReportRow {
@@ -78,6 +82,8 @@ export interface BaseApi {
   signedUrl(path: string): Promise<string>;
   /** Запис роботи/запчастини — лише керівники (припущення, див. README). */
   addJob(input: NewJob): Promise<Job>;
+  /** Фото авто з його папки «АВТО-0XX …» на Google Drive (бачать усі члени команди). */
+  listVehiclePhotos(vehicleId: string): Promise<VehiclePhotos>;
   addPart(input: NewPart): Promise<Part>;
 
   // ---- Звіт для донорів (лише керівники) ----

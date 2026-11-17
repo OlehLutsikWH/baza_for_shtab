@@ -1,6 +1,7 @@
 import type { DonorReportPatch, DonorReportRow, NewJob, NewPart, Job, Part, BaseApi, Role, StatusPatch, Vehicle, VehicleDetail, VehicleSummary } from './types';
 import { demoData, draftReport } from './demoData';
 import { FINAL_STATUSES } from './format';
+import { demoVehiclePhotos } from './demoPhotos';
 
 export type DemoStore = ReturnType<typeof demoData>;
 
@@ -29,6 +30,10 @@ export function createDemoApi(role: Role = 'head', now: () => Date = () => new D
     },
     async listFinance() { return role === 'head' ? [...d.finance] : null; },
     async signedUrl(path: string) { return `#demo-file:${encodeURIComponent(path)}`; },
+    async listVehiclePhotos(vehicleId) {
+      const v = d.vehicles.find(x => x.id === vehicleId);
+      return v ? demoVehiclePhotos(v.id, v.name) : { folder: null, photos: [] };
+    },
     async addJob(i: NewJob): Promise<Job> {
       if (role !== 'head') throw new Error('Додавати записи можуть лише керівники');
       if (!d.vehicles.some(v => v.id === i.vehicle_id)) throw new Error('Авто не знайдено');

@@ -7,8 +7,9 @@ import { FINAL_STATUSES, ageLabel, financeTotals, formatDate, formatMoney, isSta
 import { StatusBadge } from './StatusBadge';
 import { StatusEditor } from './StatusEditor';
 import { DonorReportPanel } from './DonorReportPanel';
+import { PhotosTab } from './PhotosTab';
 
-type Tab = 'jobs' | 'parts' | 'finance' | 'docs' | 'report';
+type Tab = 'jobs' | 'parts' | 'finance' | 'docs' | 'photos' | 'report';
 
 function Links({ links }: { links: LegacyLink[] | null }) {
   if (!links?.length) return <span className="base-muted">—</span>;
@@ -44,7 +45,7 @@ export function VehicleDetailView({ id, now: nowProp, initialTab }: { id: string
   const [role, setRole] = useState<Role>('member');
   const [statuses, setStatuses] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
-  const [tab, setTab] = useState<Tab>(initialTab === 'report' ? 'report' : 'jobs');
+  const [tab, setTab] = useState<Tab>(initialTab === 'report' ? 'report' : initialTab === 'photos' ? 'photos' : 'jobs');
   const [hasReport, setHasReport] = useState(false);
   const [reportNotice, setReportNotice] = useState(false);
 
@@ -73,6 +74,7 @@ export function VehicleDetailView({ id, now: nowProp, initialTab }: { id: string
     { key: 'parts', label: 'Запчастини', count: parts.length },
     ...(finance ? [{ key: 'finance' as Tab, label: 'Фінанси', count: finance.length }] : []),
     { key: 'docs', label: 'Документи', count: documents.length },
+    { key: 'photos', label: 'Фото' },
     ...(isHead && (FINAL_STATUSES.includes(v.status) || hasReport) ? [{ key: 'report' as Tab, label: 'Звіт для донорів' }] : []),
   ];
   const active: Tab = tabs.some(t => t.key === tab) ? tab : 'jobs';
@@ -169,6 +171,7 @@ export function VehicleDetailView({ id, now: nowProp, initialTab }: { id: string
               <td>{d.storage_path ? <FileLink path={d.storage_path} /> : <Links links={d.legacy_links} />}</td><td>{d.notes ?? ''}</td></tr>)}
           </Table>
         )}
+        {active === 'photos' && <PhotosTab vehicleId={v.id} />}
         {active === 'report' && isHead && <DonorReportPanel detail={detail} now={now} />}
       </div>
     </article>

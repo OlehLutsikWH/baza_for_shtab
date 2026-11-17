@@ -64,23 +64,28 @@ function Marker() {
   const h = 11, dx = h * TAN;
   return <Svg width={9} height={h} viewBox={`0 0 9 ${h}`}><Polygon points={`0,${h} ${dx},0 ${dx + 4.4},0 4.4,${h}`} fill={C.olive} /></Svg>;
 }
-function Section({ title, children, breakBefore, keepWithNext = 80 }: { title: string; children: ReactNode; breakBefore?: boolean; keepWithNext?: number }) {
+function SectionTitle({ title }: { title: string }) {
   return (
-    <View break={breakBefore} style={{ marginBottom: 18 }}>
-      {/* заголовок не лишається сам унизу сторінки */}
-      <View wrap={false} minPresenceAhead={keepWithNext} style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 10 }}>
-        <Marker />
-        <Text style={[s.h2, { marginLeft: 7 }]}>{title}</Text>
-        <View style={{ flex: 1, height: 1, backgroundColor: C.sage, marginLeft: 10 }} />
-      </View>
+    <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 10 }}>
+      <Marker />
+      <Text style={[s.h2, { marginLeft: 7 }]}>{title}</Text>
+      <View style={{ flex: 1, height: 1, backgroundColor: C.sage, marginLeft: 10 }} />
+    </View>
+  );
+}
+/** Заголовок розділу не розривається з початком розділу (lead): самотнього заголовка внизу сторінки не буває. */
+function Section({ title, lead, children }: { title: string; lead: ReactNode; children?: ReactNode }) {
+  return (
+    <View style={{ marginBottom: 18 }}>
+      <View wrap={false}><SectionTitle title={title} />{lead}</View>
       {children}
     </View>
   );
 }
-function Figure({ value, label }: { value: string; label: string }) {
+function Figure({ value, label, size = 22, grow = 1 }: { value: string; label: string; size?: number; grow?: number }) {
   return (
-    <View style={{ flex: 1 }}>
-      <Text style={{ fontFamily: 'Plex', fontWeight: 700, fontSize: 22, color: C.olive, lineHeight: 1.1 }}>{value}</Text>
+    <View style={{ flex: grow }}>
+      <Text style={{ fontFamily: 'Plex', fontWeight: 700, fontSize: size, color: C.olive, lineHeight: 1.1 }}>{value}</Text>
       <Text style={[s.small, { marginTop: 4, color: C.label }]}>{label}</Text>
     </View>
   );
@@ -92,7 +97,7 @@ const statusPill = (m: DonorReportModel) =>
     : { text: m.status, fg: C.warn, bg: C.warnBg };
 const avtoNumber = (id: string) => /(\d+)\s*$/.exec(id)?.[1] ?? id;
 
-// ---------- сторінки ----------
+// ---------- обкладинка ----------
 function Cover({ m }: { m: DonorReportModel }) {
   const f = m.figures;
   const pill = statusPill(m);
@@ -135,8 +140,9 @@ function Cover({ m }: { m: DonorReportModel }) {
 
       {hero ? (
         <View style={{ marginTop: 20 }}>
-          <Image src={hero.src} style={{ width: W, height: 240, objectFit: 'cover' }} />
-          <View style={{ flexDirection: 'row', marginTop: 16 }}>{figures.map(x => <Figure key={x.label} {...x} />)}</View>
+          <Image src={hero.src} style={{ width: W, height: 190, objectFit: 'cover' }} />
+          {/* у ряд з чотирьох — менший кегль, а сумі більше місця, щоб «72 100 грн» не переносилось */}
+          <View style={{ flexDirection: 'row', marginTop: 14 }}>{figures.map((x, i) => <Figure key={x.label} {...x} size={17} grow={i === 0 ? 1.5 : 1} />)}</View>
         </View>
       ) : (
         <View style={{ marginTop: 20, backgroundColor: C.tint, borderWidth: 1, borderColor: C.border, padding: 20, position: 'relative' }}>
@@ -153,6 +159,7 @@ function Cover({ m }: { m: DonorReportModel }) {
   );
 }
 
+// ---------- розділи ----------
 function Timeline({ m }: { m: DonorReportModel }) {
   const t = m.timeline;
   if (t.length < 2) return null;
@@ -183,22 +190,21 @@ function Timeline({ m }: { m: DonorReportModel }) {
   );
 }
 
-function Works({ m }: { m: DonorReportModel }) {
-  if (!m.works.length) return <Text style={s.small}>Робіт не записано.</Text>;
+function WorksHeader() {
   return (
-    <View>
-      <View style={{ flexDirection: 'row', paddingBottom: 5, borderBottomWidth: 1, borderBottomColor: C.olive }}>
-        <Text style={[s.th, { width: 22 }]}>№</Text><Text style={[s.th, { flex: 1 }]}>Робота</Text>
-        <Text style={[s.th, { width: 122 }]}>Коли</Text><Text style={[s.th, s.num, { width: 40 }]}>Днів</Text>
-      </View>
-      {m.works.map((w, i) => (
-        <View key={i} wrap={false} style={{ flexDirection: 'row', paddingVertical: 6, borderBottomWidth: 0.5, borderBottomColor: C.line }}>
-          <Text style={[s.mono, { width: 22, color: C.faint, fontSize: 9 }]}>{String(i + 1).padStart(2, '0')}</Text>
-          <Text style={{ flex: 1, paddingRight: 8 }}>{w.title}{w.done ? '' : '  (ще триває)'}</Text>
-          <Text style={{ width: 122, color: C.muted, fontSize: 9.5 }}>{w.period ?? '—'}</Text>
-          <Text style={[s.num, s.mono, { width: 40, fontSize: 9.5 }]}>{w.days ?? '—'}</Text>
-        </View>
-      ))}
+    <View style={{ flexDirection: 'row', paddingBottom: 5, borderBottomWidth: 1, borderBottomColor: C.olive }}>
+      <Text style={[s.th, { width: 22 }]}>№</Text><Text style={[s.th, { flex: 1 }]}>Робота</Text>
+      <Text style={[s.th, { width: 122 }]}>Коли</Text><Text style={[s.th, s.num, { width: 40 }]}>Днів</Text>
+    </View>
+  );
+}
+function WorkRow({ w, i }: { w: DonorReportModel['works'][number]; i: number }) {
+  return (
+    <View wrap={false} style={{ flexDirection: 'row', paddingVertical: 6, borderBottomWidth: 0.5, borderBottomColor: C.line }}>
+      <Text style={[s.mono, { width: 22, color: C.faint, fontSize: 9 }]}>{String(i + 1).padStart(2, '0')}</Text>
+      <Text style={{ flex: 1, paddingRight: 8 }}>{w.title}{w.done ? '' : '  (ще триває)'}</Text>
+      <Text style={{ width: 122, color: C.muted, fontSize: 9.5 }}>{w.period ?? '—'}</Text>
+      <Text style={[s.num, s.mono, { width: 40, fontSize: 9.5 }]}>{w.days ?? '—'}</Text>
     </View>
   );
 }
@@ -210,7 +216,7 @@ function Parts({ m }: { m: DonorReportModel }) {
   const col = (xs: typeof rows) => (
     <View style={{ flex: 1 }}>
       {xs.map((p, i) => (
-        <View key={i} wrap={false} style={{ flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 5, borderBottomWidth: 0.5, borderBottomColor: C.line }}>
+        <View key={i} style={{ flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 5, borderBottomWidth: 0.5, borderBottomColor: C.line }}>
           <Text style={{ flex: 1, paddingRight: 6 }}>{p.name}</Text>
           <Text style={[s.mono, { color: C.label, fontSize: 9 }]}>× {p.qty}</Text>
         </View>
@@ -220,50 +226,57 @@ function Parts({ m }: { m: DonorReportModel }) {
   return <View style={{ flexDirection: 'row' }}>{col(rows.slice(0, half))}<View style={{ width: 22 }} />{col(rows.slice(half))}</View>;
 }
 
-function Money({ m }: { m: DonorReportModel }) {
+function MoneySummary({ m }: { m: DonorReportModel }) {
   const f = m.figures;
   if (!f.total) return <Text style={s.small}>Витрат по цьому авто не записано.</Text>;
   const maxShare = Math.max(...m.spend.map(x => x.share));
-  const inv = m.invoices;
   return (
     <View>
-      <View wrap={false}>
-        <View style={{ flexDirection: 'row', alignItems: 'flex-end', marginBottom: 22 }}>
-          <View style={{ flex: 1 }}>
-            <Text style={s.kicker}>Усього на це авто</Text>
-            <Text style={{ fontFamily: 'Plex', fontWeight: 700, fontSize: 24, lineHeight: 1.2, marginTop: 4, color: C.ink }}>{money(f.total)}</Text>
-          </View>
-          <View style={{ width: 200 }}>
-            <Text style={{ fontSize: 9.5, color: C.ok, textAlign: 'right' }}>оплачено {money(f.paid)}</Text>
-            {f.pending > 0 && <Text style={{ fontSize: 9.5, color: C.warn, textAlign: 'right', marginTop: 2 }}>в процесі оплати {money(f.pending)}</Text>}
-          </View>
+      <View style={{ flexDirection: 'row', alignItems: 'flex-end', marginBottom: 22 }}>
+        <View style={{ flex: 1 }}>
+          <Text style={s.kicker}>Усього на це авто</Text>
+          <Text style={{ fontFamily: 'Plex', fontWeight: 700, fontSize: 24, lineHeight: 1.2, marginTop: 4, color: C.ink }}>{money(f.total)}</Text>
         </View>
-        <Text style={[s.kicker, { marginBottom: 8 }]}>На що витрачено</Text>
-        {m.spend.map(x => (
-          <View key={x.category} style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 7 }}>
-            <Text style={{ width: 92, fontSize: 9.5 }}>{x.category}</Text>
-            <View style={{ flex: 1, height: 11, backgroundColor: C.tint2 }}>
-              <View style={{ width: `${Math.max(1.5, (x.share / maxShare) * 100)}%`, height: 11, backgroundColor: C.olive }} />
-            </View>
-            <Text style={{ width: 94, textAlign: 'right', fontSize: 9.5, fontWeight: 600 }}>{money(x.amount)}</Text>
-            <Text style={[s.mono, { width: 34, textAlign: 'right', fontSize: 8.5, color: C.label }]}>{Math.round(x.share * 100)}%</Text>
-          </View>
-        ))}
-        {m.sources.length > 0 && (
-          <Text style={[s.small, { marginTop: 10 }]}>
-            Джерела коштів: <Text style={{ color: C.ink }}>{m.sources.map(x => `${x.source} — ${money(x.amount)}`).join('  ·  ')}</Text>
-          </Text>
-        )}
+        <View style={{ width: 200 }}>
+          <Text style={{ fontSize: 9.5, color: C.ok, textAlign: 'right' }}>оплачено {money(f.paid)}</Text>
+          {f.pending > 0 && <Text style={{ fontSize: 9.5, color: C.warn, textAlign: 'right', marginTop: 2 }}>в процесі оплати {money(f.pending)}</Text>}
+        </View>
       </View>
+      <Text style={[s.kicker, { marginBottom: 8 }]}>На що витрачено</Text>
+      {m.spend.map(x => (
+        <View key={x.category} style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 7 }}>
+          <Text style={{ width: 92, fontSize: 9.5 }}>{x.category}</Text>
+          <View style={{ flex: 1, height: 11, backgroundColor: C.tint2 }}>
+            <View style={{ width: `${Math.max(1.5, (x.share / maxShare) * 100)}%`, height: 11, backgroundColor: C.olive }} />
+          </View>
+          <Text style={{ width: 94, textAlign: 'right', fontSize: 9.5, fontWeight: 600 }}>{money(x.amount)}</Text>
+          <Text style={[s.mono, { width: 34, textAlign: 'right', fontSize: 8.5, color: C.label }]}>{Math.round(x.share * 100)}%</Text>
+        </View>
+      ))}
+      {m.sources.length > 0 && (
+        <Text style={[s.small, { marginTop: 10 }]}>
+          Джерела коштів: <Text style={{ color: C.ink }}>{m.sources.map(x => `${x.source} — ${money(x.amount)}`).join('  ·  ')}</Text>
+        </Text>
+      )}
+    </View>
+  );
+}
 
+function MoneyInvoices({ m }: { m: DonorReportModel }) {
+  const f = m.figures, inv = m.invoices;
+  if (!f.total) return null;
+  return (
+    <View>
       {inv && (
         // коротка таблиця переноситься на нову сторінку цілою; довга — рядками
         <View wrap={inv.length > 18} style={{ marginTop: 22 }}>
-          <Text minPresenceAhead={60} style={[s.kicker, { marginBottom: 6 }]}>Кожна витрата окремо</Text>
-          <View style={{ flexDirection: 'row', paddingBottom: 5, borderBottomWidth: 1, borderBottomColor: C.olive }}>
-            <Text style={[s.th, { width: 60 }]}>Дата</Text><Text style={[s.th, { flex: 1 }]}>На що</Text>
-            <Text style={[s.th, { width: 74 }]}>Стаття</Text><Text style={[s.th, s.num, { width: 84 }]}>Сума</Text>
-            <Text style={[s.th, s.num, { width: 66 }]}>Оплата</Text>
+          <View wrap={false}>
+            <Text style={[s.kicker, { marginBottom: 6 }]}>Кожна витрата окремо</Text>
+            <View style={{ flexDirection: 'row', paddingBottom: 5, borderBottomWidth: 1, borderBottomColor: C.olive }}>
+              <Text style={[s.th, { width: 60 }]}>Дата</Text><Text style={[s.th, { flex: 1 }]}>На що</Text>
+              <Text style={[s.th, { width: 74 }]}>Стаття</Text><Text style={[s.th, s.num, { width: 84 }]}>Сума</Text>
+              <Text style={[s.th, s.num, { width: 66 }]}>Оплата</Text>
+            </View>
           </View>
           {inv.map((r, i) => (
             <View key={r.id} wrap={false} style={{ flexDirection: 'row', paddingVertical: 5.5, backgroundColor: i % 2 ? C.white : C.tint2, borderBottomWidth: 0.5, borderBottomColor: C.line }}>
@@ -288,14 +301,12 @@ function Money({ m }: { m: DonorReportModel }) {
   );
 }
 
-function Photos({ m }: { m: DonorReportModel }) {
-  const xs = m.images.slice(0, 6);
-  if (!xs.length) return null;
+function PhotoRow({ images }: { images: DonorReportModel['images'] }) {
   const w = (W - 14) / 2;
   return (
-    <View style={{ flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between' }}>
-      {xs.map((im, i) => (
-        <View key={i} wrap={false} style={{ width: w, marginBottom: 14 }}>
+    <View wrap={false} style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 14 }}>
+      {images.map((im, i) => (
+        <View key={i} style={{ width: w }}>
           <Image src={im.src} style={{ width: w, height: w * 0.66, objectFit: 'cover' }} />
           <Text style={[s.small, { marginTop: 4 }]}>
             {im.kind ? <Text style={{ fontFamily: 'Plex', fontWeight: 700, color: C.olive }}>{im.kind === 'до' ? 'ДО  ' : 'ПІСЛЯ  '}</Text> : null}{im.caption ?? ''}
@@ -324,6 +335,10 @@ function Thanks({ m }: { m: DonorReportModel }) {
 }
 
 export function DonorReportDocument({ m }: { m: DonorReportModel }) {
+  const LEAD_ROWS = 3; // скільки рядків таблиці робіт тримається разом із заголовком
+  const photos = m.images.slice(0, 6);
+  const photoRows: DonorReportModel['images'][] = [];
+  for (let i = 0; i < photos.length; i += 2) photoRows.push(photos.slice(i, i + 2));
   return (
     <Document title={`Звіт про ремонт — ${m.vehicle.name}`} author={BRAND.fundFull} subject={`${BRAND.project}: звіт для донорів`} language="uk" creator="СТО «База»" producer="СТО «База»">
       <Page size="A4" style={s.page}>
@@ -335,14 +350,22 @@ export function DonorReportDocument({ m }: { m: DonorReportModel }) {
           <Text style={{ color: C.sage }} render={({ pageNumber, totalPages }) => `${BRAND.site} · ${pageNumber} / ${totalPages}`} />
         </View>
         <Cover m={m} />
-        <Section title="Історія ремонту">
-          {m.story.paragraphs.map((p, i) => <Text key={i} style={s.p}>{p}</Text>)}
+        <Section title="Історія ремонту" lead={<Text style={s.p}>{m.story.paragraphs[0] ?? ''}</Text>}>
+          {m.story.paragraphs.slice(1).map((p, i) => <Text key={i} style={s.p}>{p}</Text>)}
           <Timeline m={m} />
         </Section>
-        <Section title="Що зроблено" breakBefore><Works m={m} /></Section>
-        <Section title="Запчастини"><Parts m={m} /></Section>
-        <Section title="Кошти: на що витрачено" keepWithNext={220}><Money m={m} /></Section>
-        {m.images.length > 0 && <Section title="Фото" breakBefore><Photos m={m} /></Section>}
+        <Section title="Що зроблено" lead={m.works.length
+          ? <View><WorksHeader />{m.works.slice(0, LEAD_ROWS).map((w, i) => <WorkRow key={i} w={w} i={i} />)}</View>
+          : <Text style={s.small}>Робіт не записано.</Text>}>
+          {m.works.slice(LEAD_ROWS).map((w, i) => <WorkRow key={i + LEAD_ROWS} w={w} i={i + LEAD_ROWS} />)}
+        </Section>
+        <Section title="Запчастини" lead={<Parts m={m} />} />
+        <Section title="Кошти: на що витрачено" lead={<MoneySummary m={m} />}><MoneyInvoices m={m} /></Section>
+        {photoRows.length > 0 && (
+          <Section title="Фото" lead={<PhotoRow images={photoRows[0]} />}>
+            {photoRows.slice(1).map((row, i) => <PhotoRow key={i} images={row} />)}
+          </Section>
+        )}
         <Thanks m={m} />
       </Page>
     </Document>
