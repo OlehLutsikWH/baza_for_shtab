@@ -1,14 +1,18 @@
 /* СТО БАЗА — стилі модуля. Усе під префіксом .base-*, щоб не конфліктувати зі стилями «Штабу». Мобільний-перший. */
-.base-root{--b-bg:#f6f7f9;--b-surface:#fff;--b-text:#1b1f24;--b-muted:#6b7480;--b-line:#e1e5ea;--b-accent:#2557d6;
+.base-root{--b-bg:#f6f7f9;--b-surface:#fff;--b-text:#1b1f24;--b-muted:#6b7480;--b-line:#e1e5ea;--b-accent:#2557d6;--b-on-accent:#fff;
   --b-info:#e8eefc;--b-info-t:#1d3f9c;--b-warn:#fff1d6;--b-warn-t:#8a5300;--b-work:#e3f3fb;--b-work-t:#075e86;
   --b-ok:#e0f5e6;--b-ok-t:#17692f;--b-done:#eceef1;--b-done-t:#4a525c;--b-bad:#fde7e7;--b-bad-t:#a12222;
   background:var(--b-bg);color:var(--b-text);min-height:100vh;font:16px/1.45 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
-@media (prefers-color-scheme:dark){.base-root{--b-bg:#12151a;--b-surface:#1a1f26;--b-text:#e8ebef;--b-muted:#98a2ae;--b-line:#2a313b;--b-accent:#7da2ff;
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]) .base-root{--b-bg:#12151a;--b-surface:#1a1f26;--b-text:#e8ebef;--b-muted:#98a2ae;--b-line:#2a313b;--b-accent:#7da2ff;--b-on-accent:#0b1530;
   --b-info:#1e2a4a;--b-info-t:#aac2ff;--b-warn:#43330f;--b-warn-t:#ffd58a;--b-work:#12323f;--b-work-t:#8fd3f2;
-  --b-ok:#153322;--b-ok-t:#8fdca6;--b-done:#262c35;--b-done-t:#b4bcc6;--b-bad:#431c1c;--b-bad-t:#ffb0b0}}
+  --b-ok:#153322;--b-ok-t:#8fdca6;--b-done:#262c35;--b-done-t:#b4bcc6;--b-bad:#431c1c;--b-bad-t:#ffb0b0;color-scheme:dark}}
+:root[data-theme="dark"] .base-root{--b-bg:#12151a;--b-surface:#1a1f26;--b-text:#e8ebef;--b-muted:#98a2ae;--b-line:#2a313b;--b-accent:#7da2ff;--b-on-accent:#0b1530;
+  --b-info:#1e2a4a;--b-info-t:#aac2ff;--b-warn:#43330f;--b-warn-t:#ffd58a;--b-work:#12323f;--b-work-t:#8fd3f2;
+  --b-ok:#153322;--b-ok-t:#8fdca6;--b-done:#262c35;--b-done-t:#b4bcc6;--b-bad:#431c1c;--b-bad-t:#ffb0b0;color-scheme:dark}
 .base-root *{box-sizing:border-box}
 .base-header{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:12px 16px;background:var(--b-surface);border-bottom:1px solid var(--b-line)}
-.base-brand{font-weight:700}
+.base-brand{font-weight:700;color:var(--b-text);text-decoration:none}
+:where(.base-root) a{color:var(--b-accent)}
 .base-demo{background:var(--b-warn);color:var(--b-warn-t);padding:8px 16px;font-size:14px}
 .base-main{max-width:1000px;margin:0 auto;padding:16px}
 .base-h1{font-size:22px;margin:0 0 4px}.base-h2{font-size:17px;margin:0 0 8px}.base-h3{font-size:15px;margin:0 0 6px}
@@ -58,7 +62,7 @@
 .base-num{text-align:right!important;white-space:nowrap}
 .base-editor{display:grid;gap:10px;margin-top:12px;padding-top:12px;border-top:1px solid var(--b-line)}
 .base-actions{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
-.base-root button.base-primary,.base-actions button{font:inherit;background:var(--b-accent);color:#fff;border:0;border-radius:8px;padding:10px 18px;min-height:44px;cursor:pointer}
+.base-root button.base-primary,.base-actions button{font:inherit;background:var(--b-accent);color:var(--b-on-accent);border:0;border-radius:8px;padding:10px 18px;min-height:44px;cursor:pointer}
 .base-ok{color:var(--b-ok-t)}
 .base-editor input:not([type=checkbox]),.base-editor select{font:inherit;color:var(--b-text);background:var(--b-surface);border:1px solid var(--b-line);border-radius:8px;padding:10px;min-height:44px;width:100%}
 .base-editor label{display:flex;flex-direction:column;gap:4px;font-size:13px;color:var(--b-muted)}

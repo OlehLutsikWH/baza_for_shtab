@@ -1,9 +1,12 @@
 import type { NewJob, NewPart, Job, Part, BaseApi, Role, StatusPatch, Vehicle, VehicleDetail, VehicleSummary } from './types';
 import { demoData } from './demoData';
 
-/** Демо-реалізація в пам'яті: для окремої розробки й тестів. */
-export function createDemoApi(role: Role = 'head', now: () => Date = () => new Date()): BaseApi {
-  const d = demoData(now());
+export type DemoStore = ReturnType<typeof demoData>;
+
+/** Демо-реалізація в пам'яті: для окремої розробки й тестів.
+ *  `store` можна передати спільним, щоб зміни не губились при перемиканні ролі. */
+export function createDemoApi(role: Role = 'head', now: () => Date = () => new Date(), store?: DemoStore): BaseApi {
+  const d = store ?? demoData(now());
   return {
     role: async () => role,
     statuses: async () => d.statuses,

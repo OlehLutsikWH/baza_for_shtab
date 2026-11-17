@@ -5,9 +5,12 @@
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import type { BaseApi, Role } from './types';
 import { createSupabaseApi } from './supabaseApi';
-import { createDemoApi } from './demoApi';
+import { createDemoApi, type DemoStore } from './demoApi';
+import { demoData } from './demoData';
 
 let client: SupabaseClient | null = null;
+// Демо: одні дані на всю сесію сторінки, спільні для обох ролей.
+let demoStore: DemoStore | null = null;
 export function getSupabaseClient(): SupabaseClient | null {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL, key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
   if (!url || !key) return null;
@@ -18,5 +21,5 @@ export const isDemo = () => getSupabaseClient() === null;
 
 export function createHostApi(demoRole?: Role): BaseApi {
   const sb = getSupabaseClient();
-  return sb ? createSupabaseApi(sb) : createDemoApi(demoRole ?? 'head');
+  return sb ? createSupabaseApi(sb) : createDemoApi(demoRole ?? 'head', undefined, (demoStore ??= demoData()));
 }
