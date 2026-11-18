@@ -24,6 +24,7 @@ export function Dashboard({ now: nowProp }: { now?: Date }) {
   if (!state) return <p className="base-muted">Завантаження…</p>;
   const { list, fin, d, pending } = state;
   const stamp = now.toISOString().slice(0, 10);
+  const unassigned = fin?.filter(f => f.scope === 'unassigned') ?? [];
   const Row = ({ v, why }: { v: VehicleSummary; why: string }) => (
     <li><Link href={`/base/car/?id=${encodeURIComponent(v.id)}`}><b>{v.name}</b></Link> <StatusBadge value={v.status} /> <span className="base-muted">{why}</span></li>
   );
@@ -56,6 +57,9 @@ export function Dashboard({ now: nowProp }: { now?: Date }) {
           <p>Очікує оплати: <b>{formatMoney(d.money.pending)}</b></p>
           {d.money.pendingUnattributed > 0 && <p className="base-stale">З них без вказаної особи: {formatMoney(d.money.pendingUnattributed)}</p>}
           {d.money.debtors.length > 0 && <ul className="base-plain">{d.money.debtors.map(x => <li key={x.person}>{x.person}: <b>{formatMoney(x.amount)}</b></li>)}</ul>}
+          {unassigned.length > 0 && (
+            <p className="base-stale">Платежі без авто: <b>{unassigned.length}</b> на {formatMoney(unassigned.reduce((a, f) => a + f.amount, 0))} — <Link href="/base/payments/">розподілити</Link></p>
+          )}
         </section>)}
       <div className="base-actions">
         <button type="button" onClick={() => download(`avto-${stamp}.csv`, vehiclesCsv(list))}>Експорт авто (CSV)</button>

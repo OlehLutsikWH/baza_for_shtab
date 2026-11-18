@@ -83,6 +83,9 @@ export function demoData(now = new Date()) {
     fin(11, 'АВТО-003', { amount: 15000, spent_on: dateAgo(17, now), purpose: 'Фарбування кузова', category: 'Фарбування', person_dejure: 'Особа Б', pay_status: 'Очікує оплати' }),
     fin(12, 'АВТО-003', { amount: 2750, spent_on: dateAgo(8, now), purpose: 'Олива та фільтри', paid_on: dateAgo(8, now) }),
     fin(13, 'АВТО-004', { amount: 11200, spent_on: dateAgo(28, now), purpose: 'Комплект зчеплення і робота', category: 'Роботи СТО', paid_on: dateAgo(27, now) }),
+    // з таблиці без номера авто — чекають, поки керівник вирішить, куди їх віднести
+    fin(14, null, { amount: 450, spent_on: dateAgo(6, now), purpose: 'Нова пошта: доставка запчастин', doc_ref: 'ТТН (вигадана)', paid_on: dateAgo(6, now) }),
+    fin(15, null, { amount: 3600, spent_on: dateAgo(12, now), purpose: 'Евакуатор: перевезення двох авто на СТО', paid_on: dateAgo(12, now) }),
   ];
   const documents: DocumentItem[] = [
     { id: 1, vehicle_id: 'АВТО-001', doc_type: 'Акт приймання-передачі', storage_path: null, doc_date: dateAgo(40, now), notes: null,

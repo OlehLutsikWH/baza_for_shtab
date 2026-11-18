@@ -11,7 +11,7 @@ function check<T>(res: { data: T | null; error: { message: string } | null }, wh
 export function createSupabaseApi(sb: SupabaseClient): BaseApi {
   let roleCache: Promise<Role> | null = null;
   const role = () => (roleCache ??= (async () => {
-    const r = await sb.rpc('is_head');
+    const r = await sb.rpc('base_is_head');
     return r.data === true ? 'head' : 'member';
   })());
 
@@ -51,6 +51,13 @@ export function createSupabaseApi(sb: SupabaseClient): BaseApi {
     async listFinance() {
       if ((await role()) !== 'head') return null;
       return check(await sb.from('base_finance').select('*').order('spent_on', { ascending: false, nullsFirst: false }), 'Фінанси') as FinanceItem[];
+    },
+    async assignPayment(financeId, target) {
+      const patch = target.scope === 'vehicle' ? { scope: 'vehicle', vehicle_id: target.vehicle_id } : { scope: target.scope, vehicle_id: null };
+      const r = await sb.from('base_finance').update(patch).eq('id', financeId).select('id');
+      if (r.error) throw new Error(`Платіж: ${r.error.message}`);
+      // без прав RLS не дає помилки, а просто нічого не змінює
+      if (!r.data?.length) throw new Error('Платіж не змінено: немає прав або його вже видалено');
     },
     async signedUrl(path: string) {
       const r = await sb.storage.from('base-files').createSignedUrl(path, 300);

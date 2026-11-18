@@ -44,10 +44,10 @@ create trigger trg_base_donor_reports_audit after insert or update or delete on 
   for each row execute function base_audit();
 
 alter table base_donor_reports enable row level security;
-create policy base_donor_reports_sel on base_donor_reports for select to authenticated using (public.is_head());
-create policy base_donor_reports_ins on base_donor_reports for insert to authenticated with check (public.is_head());
-create policy base_donor_reports_upd on base_donor_reports for update to authenticated using (public.is_head()) with check (public.is_head());
-create policy base_donor_reports_del on base_donor_reports for delete to authenticated using (public.is_head());
+create policy base_donor_reports_sel on base_donor_reports for select to authenticated using (base_is_head());
+create policy base_donor_reports_ins on base_donor_reports for insert to authenticated with check (base_is_head());
+create policy base_donor_reports_upd on base_donor_reports for update to authenticated using (base_is_head()) with check (base_is_head());
+create policy base_donor_reports_del on base_donor_reports for delete to authenticated using (base_is_head());
 grant select, insert, update, delete on base_donor_reports to authenticated;
 revoke all on base_donor_reports from anon;
 

@@ -3,9 +3,9 @@
 -- Залежить від is_member() та is_head() «Штабу» (у автономних тестах — заглушки).
 -- Модель:
 --   * читання: будь-який член команди (is_member() або is_head());
---   * запис (insert/update/delete): лише керівники (is_head());
---   * ФІНАНСИ (base_finance, файли в finance/): читає й пише лише is_head();
---   * журнал змін base_audit_log: читає лише is_head(), напряму не пишеться ніким
+--   * запис (insert/update/delete): лише керівники «Бази» (base_is_head());
+--   * ФІНАНСИ (base_finance, файли в finance/): читає й пише лише base_is_head();
+--   * журнал змін base_audit_log: читає лише base_is_head(), напряму не пишеться ніким
 --     (пише тригер base_audit() із правами власника);
 --   * анонімні користувачі (роль anon) не мають доступу ні до чого.
 -- ============================================================
@@ -16,6 +16,32 @@ language sql stable security definer set search_path = public as $$
 $$;
 grant execute on function base_can_read() to authenticated;
 
+-- ------------------------------------------------------------
+-- Керівники «Бази» (рішення Олега 18.11.2026: керівник — Олег, за потреби ще Андрій).
+-- is_head() «Штабу» може охоплювати керівників усього фонду, тому для «Бази» — свій список:
+--   * base_heads порожня  → керівники «Бази» = усі керівники «Штабу» (як було);
+--   * base_heads заповнена → лише перелічені, і лише поки вони в команді «Штабу».
+-- Список змінюють тільки адміністратори (SQL / service role), із застосунку його не видно й не змінити:
+--   insert into base_heads (user_id, note) values ('<uuid Олега з auth.users>', 'Олег — координатор');
+-- ------------------------------------------------------------
+create table base_heads (
+  user_id    uuid primary key,
+  note       text,
+  created_at timestamptz not null default now()
+);
+alter table base_heads enable row level security;   -- політик немає: з API недоступна нікому
+revoke all on base_heads from anon, authenticated;
+
+create or replace function base_is_head() returns boolean
+language sql stable security definer set search_path = public as $$
+  select case
+    when exists (select 1 from base_heads)
+      then exists (select 1 from base_heads where user_id = auth.uid()) and (public.is_member() or public.is_head())
+    else public.is_head()
+  end
+$$;
+grant execute on function base_is_head() to authenticated;
+
 do $$
 declare t text;
 begin
@@ -24,9 +50,9 @@ begin
                            'base_jobs','base_parts','base_documents'] loop
     execute format('alter table %I enable row level security', t);
     execute format('create policy %I on %I for select to authenticated using (base_can_read())', t || '_sel', t);
-    execute format('create policy %I on %I for insert to authenticated with check (public.is_head())', t || '_ins', t);
-    execute format('create policy %I on %I for update to authenticated using (public.is_head()) with check (public.is_head())', t || '_upd', t);
-    execute format('create policy %I on %I for delete to authenticated using (public.is_head())', t || '_del', t);
+    execute format('create policy %I on %I for insert to authenticated with check (base_is_head())', t || '_ins', t);
+    execute format('create policy %I on %I for update to authenticated using (base_is_head()) with check (base_is_head())', t || '_upd', t);
+    execute format('create policy %I on %I for delete to authenticated using (base_is_head())', t || '_del', t);
     execute format('grant select, insert, update, delete on %I to authenticated', t);
     execute format('revoke all on %I from anon', t);
   end loop;
@@ -34,12 +60,12 @@ begin
   -- фінанси і журнал: усе лише для керівників
   foreach t in array array['base_finance','base_audit_log'] loop
     execute format('alter table %I enable row level security', t);
-    execute format('create policy %I on %I for select to authenticated using (public.is_head())', t || '_sel', t);
+    execute format('create policy %I on %I for select to authenticated using (base_is_head())', t || '_sel', t);
     execute format('revoke all on %I from anon', t);
   end loop;
-  create policy base_finance_ins on base_finance for insert to authenticated with check (public.is_head());
-  create policy base_finance_upd on base_finance for update to authenticated using (public.is_head()) with check (public.is_head());
-  create policy base_finance_del on base_finance for delete to authenticated using (public.is_head());
+  create policy base_finance_ins on base_finance for insert to authenticated with check (base_is_head());
+  create policy base_finance_upd on base_finance for update to authenticated using (base_is_head()) with check (base_is_head());
+  create policy base_finance_del on base_finance for delete to authenticated using (base_is_head());
   grant select, insert, update, delete on base_finance to authenticated;
   grant select on base_audit_log to authenticated;
 end $$;
@@ -78,11 +104,11 @@ on conflict (id) do update set public = false;
 
 create policy base_files_sel on storage.objects for select to authenticated
   using (bucket_id = 'base-files'
-         and ( (name like 'vehicles/%' and base_can_read()) or (name like 'finance/%' and public.is_head()) ));
+         and ( (name like 'vehicles/%' and base_can_read()) or (name like 'finance/%' and base_is_head()) ));
 create policy base_files_ins on storage.objects for insert to authenticated
-  with check (bucket_id = 'base-files' and public.is_head() and (name like 'vehicles/%' or name like 'finance/%'));
+  with check (bucket_id = 'base-files' and base_is_head() and (name like 'vehicles/%' or name like 'finance/%'));
 create policy base_files_upd on storage.objects for update to authenticated
-  using (bucket_id = 'base-files' and public.is_head())
-  with check (bucket_id = 'base-files' and public.is_head() and (name like 'vehicles/%' or name like 'finance/%'));
+  using (bucket_id = 'base-files' and base_is_head())
+  with check (bucket_id = 'base-files' and base_is_head() and (name like 'vehicles/%' or name like 'finance/%'));
 create policy base_files_del on storage.objects for delete to authenticated
-  using (bucket_id = 'base-files' and public.is_head());
+  using (bucket_id = 'base-files' and base_is_head());

@@ -98,3 +98,8 @@
 .base-photos__check{display:flex;align-items:center;gap:6px;font-size:13px;color:var(--b-text)}
 .base-photos__check input{width:18px;height:18px}
 .base-photos--pick .base-photo__opts select,.base-photos--pick .base-photo__opts input{width:100%;min-width:0}
+/* Платежі без авто */
+.base-pay{display:grid;gap:10px;padding:12px;background:var(--b-surface);border:1px solid var(--b-line);border-radius:10px}
+.base-pay-form{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.base-pay-form select{font:inherit;color:var(--b-text);background:var(--b-surface);border:1px solid var(--b-line);border-radius:8px;padding:10px;min-height:44px;flex:1 1 220px;min-width:0}
+.base-now details summary,details.base-now summary{cursor:pointer;font-weight:600;min-height:44px;display:flex;align-items:center}

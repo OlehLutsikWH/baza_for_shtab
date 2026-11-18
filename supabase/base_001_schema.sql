@@ -119,7 +119,7 @@ create trigger trg_job_ref before insert or update on base_jobs
   for each row execute function base_enforce_ref('status','job_status');
 
 -- ---------- Запчастини ----------
--- cost_total — ПІДСУМКОВА вартість рядка (припущення з даних: 4 шт. × 4900 = 19600).
+-- cost_total — ПІДСУМКОВА вартість рядка, тобто ціна за всю позицію (підтвердив Олег 18.11.2026; у даних 4 шт. × 4900 = 19600).
 create table base_parts (
   id               bigint generated always as identity primary key,
   vehicle_id       text not null references base_vehicles(id) on update cascade,

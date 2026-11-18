@@ -30,7 +30,7 @@ create table base_bot_uploads (
 create index base_bot_uploads_album on base_bot_uploads (chat_id, media_group_id) where media_group_id is not null;
 
 alter table base_bot_uploads enable row level security;
-create policy base_bot_uploads_sel on base_bot_uploads for select to authenticated using (public.is_head());
+create policy base_bot_uploads_sel on base_bot_uploads for select to authenticated using (base_is_head());
 grant select on base_bot_uploads to authenticated;
 revoke all on base_bot_uploads from anon;
 

@@ -21,11 +21,11 @@ create table base_bot_log (
 
 alter table base_bot_users enable row level security;
 alter table base_bot_log enable row level security;
-create policy base_bot_users_sel on base_bot_users for select to authenticated using (public.is_head());
-create policy base_bot_users_ins on base_bot_users for insert to authenticated with check (public.is_head());
-create policy base_bot_users_upd on base_bot_users for update to authenticated using (public.is_head()) with check (public.is_head());
-create policy base_bot_users_del on base_bot_users for delete to authenticated using (public.is_head());
-create policy base_bot_log_sel on base_bot_log for select to authenticated using (public.is_head());
+create policy base_bot_users_sel on base_bot_users for select to authenticated using (base_is_head());
+create policy base_bot_users_ins on base_bot_users for insert to authenticated with check (base_is_head());
+create policy base_bot_users_upd on base_bot_users for update to authenticated using (base_is_head()) with check (base_is_head());
+create policy base_bot_users_del on base_bot_users for delete to authenticated using (base_is_head());
+create policy base_bot_log_sel on base_bot_log for select to authenticated using (base_is_head());
 grant select, insert, update, delete on base_bot_users to authenticated;
 grant select on base_bot_log to authenticated;
 revoke all on base_bot_users, base_bot_log from anon;

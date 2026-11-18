@@ -19,7 +19,7 @@ function Inner({ children }: { children: ReactNode }) {
           {demo && <span className="base-demo" role="note">Демо-режим: вигадані дані{demoRole === 'member' ? ' · вигляд для члена команди' : ''}</span>}
         </header>
         <nav className="base-nav" aria-label="Розділи">
-          <Link href="/base/">Зведення</Link><Link href="/base/cars/">Авто</Link><Link href="/base/quick/">Швидке введення</Link>
+          <Link href="/base/">Зведення</Link><Link href="/base/cars/">Авто</Link><Link href="/base/quick/">Швидке введення</Link><Link href="/base/payments/">Платежі</Link>
         </nav>
         <main className="base-main">{children}</main>
       </div>

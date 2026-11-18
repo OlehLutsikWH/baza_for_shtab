@@ -7,6 +7,7 @@ import DashboardPage from '../src/app/base/page';
 import CarsPage from '../src/app/base/cars/page';
 import CarPage from '../src/app/base/car/page';
 import QuickPage from '../src/app/base/quick/page';
+import PaymentsPage from '../src/app/base/payments/page';
 import Link from './shims/next-link';
 import { getState, subscribe, setRole, type Role } from './router';
 import { onPreview, closePreview, type Preview } from './download';
@@ -16,7 +17,7 @@ function NotFound() {
 }
 
 const PAGES: Record<string, ComponentType> = {
-  '/base/': DashboardPage, '/base/cars/': CarsPage, '/base/car/': CarPage, '/base/quick/': QuickPage,
+  '/base/': DashboardPage, '/base/cars/': CarsPage, '/base/car/': CarPage, '/base/quick/': QuickPage, '/base/payments/': PaymentsPage,
 };
 
 const HINT: Record<Role, string> = {

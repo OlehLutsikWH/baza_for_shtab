@@ -39,6 +39,9 @@ export interface VehicleDetail {
   finance: FinanceItem[] | null;
 }
 
+/** vehicle — до однієї машини; shared — спільний на кілька авто; general — не про авто (оренда СТО тощо). */
+export type PaymentTarget = { scope: 'vehicle'; vehicle_id: string } | { scope: 'shared' | 'general' };
+
 export interface StatusPatch { status?: string; blocker?: string | null; next_step?: string | null; responsible?: string | null }
 
 export interface NewJob { vehicle_id: string; description: string; executor?: string | null; location?: string | null; status?: string; notes?: string | null }
@@ -78,9 +81,11 @@ export interface BaseApi {
   updateVehicleStatus(id: string, patch: StatusPatch): Promise<Vehicle>;
   /** Усі фінансові записи; null для не-керівників. */
   listFinance(): Promise<FinanceItem[] | null>;
+  /** Куди віднести платіж без авто: до машини, спільний (на кілька авто) чи не про авто — лише керівники. */
+  assignPayment(financeId: number, target: PaymentTarget): Promise<void>;
   /** Тимчасове посилання на файл у bucket base-files (діє за політиками Storage). */
   signedUrl(path: string): Promise<string>;
-  /** Запис роботи/запчастини — лише керівники (припущення, див. README). */
+  /** Запис роботи/запчастини — лише керівники «Бази» (рішення Олега 18.11.2026, див. README). */
   addJob(input: NewJob): Promise<Job>;
   /** Фото авто з його папки «АВТО-0XX …» на Google Drive (бачать усі члени команди). */
   listVehiclePhotos(vehicleId: string): Promise<VehiclePhotos>;

@@ -71,6 +71,14 @@ export function createDemoApi(role: Role = 'head', now: () => Date = () => new D
       d.reports[i] = { ...d.reports[i], ...patch };
       return { ...d.reports[i] };
     },
+    async assignPayment(financeId, target) {
+      if (role !== 'head') throw new Error('Фінанси доступні лише керівникам');
+      const f = d.finance.find(x => x.id === financeId);
+      if (!f) throw new Error('Платіж не знайдено');
+      if (target.scope === 'vehicle' && !d.vehicles.some(v => v.id === target.vehicle_id)) throw new Error('Авто не знайдено');
+      f.scope = target.scope;
+      f.vehicle_id = target.scope === 'vehicle' ? target.vehicle_id : null;
+    },
     async setFinanceCategory(financeId, category) {
       if (role !== 'head') throw new Error('Фінанси доступні лише керівникам');
       const f = d.finance.find(x => x.id === financeId);
