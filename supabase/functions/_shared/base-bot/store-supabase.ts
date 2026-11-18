@@ -1,6 +1,6 @@
 // Сховище бота поверх supabase-js з ключем service role (бот діє від імені системи, повз RLS;
 // хто що бачить — вирішує ядро бота за роллю користувача Telegram).
-import type { BotStore, BotUpload, BotUser, BotVehicle, PendingPayment, PendingReport, WaitingPart } from './core.ts';
+import type { BotDraft, BotStore, BotUpload, BotUser, BotVehicle, PendingPayment, PendingReport, WaitingPart } from './core.ts';
 
 type Res<T> = PromiseLike<{ data: T | null; error: { message: string } | null }>;
 // мінімальний тип клієнта, щоб файл не залежав від версії supabase-js
@@ -87,6 +87,40 @@ export function createSupabaseBotStore(sb: SB): BotStore {
       if (onlyIfStatus) b = b.eq('status', onlyIfStatus);
       await q(b.select('id'), 'Фото бота');
     },
+    async addDraft(dr) {
+      const r = await sb.from('base_bot_drafts').insert(dr).select(DRAFT_COLS).single();
+      if (r.error) throw new Error(`Чернетка бота: ${r.error.message}`);
+      return draft(r.data);
+    },
+    async getDraft(id) {
+      const rows = await q<Record<string, unknown>[]>(sb.from('base_bot_drafts').select(DRAFT_COLS).eq('id', id).limit(1), 'Чернетка бота');
+      return rows[0] ? draft(rows[0]) : null;
+    },
+    async moveDraft(id, from, patch) {
+      // один UPDATE з умовою на стан — атомарно: друге натискання нічого не змінить
+      const rows = await q<Record<string, unknown>[]>(sb.from('base_bot_drafts').update({ ...patch, updated_at: new Date().toISOString() }).eq('id', id).eq('status', from).select(DRAFT_COLS), 'Чернетка бота');
+      return rows[0] ? draft(rows[0]) : null;
+    },
+    async addJob(vehicle_id, description) {
+      const r = await sb.from('base_jobs').insert({ vehicle_id, description, status: 'Заплановано' }).select('id').single();
+      if (r.error) throw new Error(`Робота: ${r.error.message}`);
+      return { id: Number(r.data.id) };
+    },
+    async addPart(vehicle_id, name, qty, cost_total, ordered_on) {
+      const r = await sb.from('base_parts').insert({ vehicle_id, name, qty, cost_total, ordered_on, status: 'Замовлено' }).select('id').single();
+      if (r.error) throw new Error(`Запчастина: ${r.error.message}`);
+      return { id: Number(r.data.id) };
+    },
+  };
+}
+
+const DRAFT_COLS = 'id, telegram_id, chat_id, kind, vehicle_id, payload, status, record_id, created_at';
+function draft(r: Record<string, unknown>): BotDraft {
+  const p = (r.payload ?? {}) as { text?: string; qty?: number | string; cost?: number | string | null };
+  return {
+    ...(r as unknown as BotDraft), id: Number(r.id), telegram_id: Number(r.telegram_id), chat_id: Number(r.chat_id),
+    record_id: r.record_id == null ? null : Number(r.record_id),
+    payload: { text: String(p.text ?? ''), qty: Number(p.qty ?? 1), cost: p.cost == null ? null : Number(p.cost) },
   };
 }
 

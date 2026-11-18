@@ -105,6 +105,19 @@ describe('таблиці бота', () => {
     await as('member');
     await expect(db.query(`select * from base_bot_claim_uploads($1::bigint[], now())`, [ids])).rejects.toThrow(/permission denied/);
   });
+  it('чернетки бота: читає лише керівник «Бази»; лише job/part; бот додає роботу й запчастину з тими статусами, що є в довіднику', async () => {
+    await as('owner');
+    await db.exec(`insert into base_bot_drafts (telegram_id, chat_id, kind, vehicle_id, payload) values (111, 111, 'job', 'АВТО-001', '{"text":"Заміна ГРМ","qty":1,"cost":null}')`);
+    await expect(db.exec(`insert into base_bot_drafts (telegram_id, chat_id, kind, payload) values (1, 1, 'finance', '{}')`)).rejects.toThrow();
+    // так само, як store-supabase.addJob / addPart (service role, повз RLS)
+    await db.exec(`insert into base_jobs (vehicle_id, description, status) values ('АВТО-001', 'Заміна ГРМ', 'Заплановано')`);
+    await db.exec(`insert into base_parts (vehicle_id, name, qty, cost_total, ordered_on, status) values ('АВТО-001', 'Ремінь ГРМ', 2, 4900, '2026-11-18', 'Замовлено')`);
+    await as('head');
+    expect((await db.query('select kind from base_bot_drafts')).rows).toEqual([{ kind: 'job' }]);
+    await expect(db.exec(`update base_bot_drafts set status = 'done'`)).rejects.toThrow(/permission denied/);
+    await as('member');
+    expect((await db.query('select id from base_bot_drafts')).rows).toEqual([]);
+  });
 });
 
 describe('сховище бота на supabase-js', async () => {
@@ -115,14 +128,16 @@ describe('сховище бота на supabase-js', async () => {
     const from = (table: string) => {
       const ops: string[] = [];
       const b: any = {};
-      for (const m of ['select', 'eq', 'neq', 'in', 'order', 'limit', 'update', 'upsert', 'insert', 'delete']) {
+      for (const m of ['select', 'eq', 'neq', 'in', 'order', 'limit', 'update', 'upsert', 'insert', 'delete', 'single']) {
         b[m] = (...args: any[]) => { ops.push(`${m}(${args.map(a => JSON.stringify(a)).join(',')})`); return b; };
       }
       b.then = (ok: any) => {
         const key = `${table}.${ops.join('.')}`;
         log.push(key);
         const err = errors[table]?.(key) ?? null;
-        return Promise.resolve({ data: err ? null : (typeof tables[table] === 'function' ? (tables[table] as any)(key) : tables[table] ?? []), error: err }).then(ok);
+        const rows = typeof tables[table] === 'function' ? (tables[table] as any)(key) : tables[table] ?? [];
+        // .single() у supabase-js повертає один об'єкт, а не масив
+        return Promise.resolve({ data: err ? null : (ops.some(o => o.startsWith('single(')) ? rows[0] ?? null : rows), error: err }).then(ok);
       };
       return b;
     };
@@ -178,5 +193,22 @@ describe('сховище бота на supabase-js', async () => {
     expect(log).toContain('rpc:base_bot_claim_uploads({"p_ids":[5,6],"p_stale_before":"2026-11-18T06:55:00.000Z"})');
     await st.updateUploads([5, 6], { status: 'cancelled' }, 'pending');
     expect(log[log.length - 1]).toMatch(/^base_bot_uploads\.update\(\{"status":"cancelled","updated_at":"[^"]+"\}\)\.in\("id",\[5,6\]\)\.eq\("status","pending"\)\.select\("id"\)$/);
+  });
+  it('чернетки й записи: вставка, атомарна зміна стану (eq status), робота й запчастина з потрібними полями', async () => {
+    const row = { id: '7', telegram_id: '111', chat_id: '111', kind: 'part', vehicle_id: 'АВТО-021', payload: { text: 'Ремінь ГРМ', qty: '2', cost: '4900' }, status: 'pending', record_id: null, created_at: '2026-11-18T07:00:00Z' };
+    const { sb, log } = fakeSb({ base_bot_drafts: [row], base_jobs: [{ id: '31' }], base_parts: [{ id: '32' }] });
+    const st = createSupabaseBotStore(sb);
+    const nd = { telegram_id: 111, chat_id: 111, kind: 'part' as const, vehicle_id: 'АВТО-021', payload: { text: 'Ремінь ГРМ', qty: 2, cost: 4900 } };
+    expect(await st.addDraft(nd)).toMatchObject({ id: 7, chat_id: 111, payload: { text: 'Ремінь ГРМ', qty: 2, cost: 4900 }, record_id: null });
+    expect(log.at(-1)).toContain('base_bot_drafts.insert({"telegram_id":111,"chat_id":111,"kind":"part","vehicle_id":"АВТО-021","payload":{"text":"Ремінь ГРМ","qty":2,"cost":4900}})');
+    expect((await st.getDraft(7))?.id).toBe(7);
+    expect(await st.moveDraft(7, 'pending', { status: 'saving' })).toMatchObject({ id: 7 });
+    expect(log.at(-1)).toMatch(/^base_bot_drafts\.update\(\{"status":"saving","updated_at":"[^"]+"\}\)\.eq\("id",7\)\.eq\("status","pending"\)\.select\(/);
+    expect(await st.addJob('АВТО-021', 'Заміна ГРМ')).toEqual({ id: 31 });
+    expect(log.at(-1)).toBe('base_jobs.insert({"vehicle_id":"АВТО-021","description":"Заміна ГРМ","status":"Заплановано"}).select("id").single()');
+    expect(await st.addPart('АВТО-021', 'Ремінь ГРМ', 2, 4900, '2026-11-18')).toEqual({ id: 32 });
+    expect(log.at(-1)).toBe('base_parts.insert({"vehicle_id":"АВТО-021","name":"Ремінь ГРМ","qty":2,"cost_total":4900,"ordered_on":"2026-11-18","status":"Замовлено"}).select("id").single()');
+    const empty = createSupabaseBotStore(fakeSb({ base_bot_drafts: [] }).sb);
+    expect(await empty.moveDraft(7, 'pending', { status: 'saving' })).toBeNull(); // хтось уже встиг
   });
 });

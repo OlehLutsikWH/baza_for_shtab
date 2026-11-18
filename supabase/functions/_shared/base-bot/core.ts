@@ -52,6 +52,15 @@ export interface BotStore {
   claimUploads(ids: number[], staleBefore: string): Promise<number[]>;
   /** оновити фото; onlyIfStatus — лише ті, що досі в цьому стані */
   updateUploads(ids: number[], patch: UploadPatch, onlyIfStatus?: UploadStatus): Promise<void>;
+  // ----- роботи й запчастини з бота (base_bot_drafts) -----
+  /** чернетка «додати роботу/запчастину», яку керівник підтверджує кнопкою */
+  addDraft(d: NewDraft): Promise<BotDraft>;
+  getDraft(id: number): Promise<BotDraft | null>;
+  /** атомарно: змінити чернетку, лише якщо вона досі в стані from; null — хтось уже встиг */
+  moveDraft(id: number, from: DraftStatus, patch: DraftPatch): Promise<BotDraft | null>;
+  addJob(vehicleId: string, description: string): Promise<{ id: number }>;
+  /** costTotal — ціна за всю позицію (рішення Олега 18.11.2026) */
+  addPart(vehicleId: string, name: string, qty: number, costTotal: number | null, orderedOn: string): Promise<{ id: number }>;
 }
 export type Button = { text: string; data: string } | { text: string; url: string };
 export interface BotTelegram {
@@ -93,6 +102,14 @@ export interface SavedPhoto { fileId: string; folderName: string; folderUrl: str
 export interface PhotoSink {
   save(p: { vehicleId: string; vehicleName: string; kind: UploadKind; fileName: string; mime: string; bytes: Uint8Array }): Promise<SavedPhoto>;
 }
+
+// ----- роботи й запчастини з бота -----
+export type DraftKind = 'job' | 'part';
+export type DraftStatus = 'pending' | 'saving' | 'done' | 'cancelled';
+export interface DraftPayload { text: string; qty: number; cost: number | null }
+export interface NewDraft { telegram_id: number; chat_id: number; kind: DraftKind; vehicle_id: string | null; payload: DraftPayload }
+export interface BotDraft extends NewDraft { id: number; status: DraftStatus; record_id: number | null; created_at: string }
+export interface DraftPatch { status?: DraftStatus; vehicle_id?: string | null; record_id?: number | null }
 
 // мінімальні типи оновлень Telegram
 export interface TgUser { id: number; first_name?: string; last_name?: string; username?: string }
@@ -258,6 +275,50 @@ export function uploadFileName(u: Pick<BotUpload, 'id' | 'mime' | 'file_name' | 
 }
 const errText = (e: unknown) => (e instanceof Error ? e.message : String(e)).slice(0, 200);
 
+// ---------- роботи й запчастини текстом: «021 робота Заміна ГРМ», «021 запчастина Ремінь ГРМ 2 шт 4900 грн» ----------
+const JOB_WORDS = new Set(['робота', 'роботу', 'job']);
+const PART_WORDS = new Set(['запчастина', 'запчастину', 'деталь', 'part']);
+const normWord = (t: string) => t.toLowerCase().replace(/^[«"'(\[]+|[»"'):,.;!\]]+$/g, '');
+export interface AddCommand { kind: DraftKind; vehicles: BotVehicle[]; vehicleQuery: string; text: string; qty: number; cost: number | null; problem: string | null; atStart: boolean }
+/** Розбір команди керівника. null — це не команда додавання (питання, пошук машини тощо).
+ *  Форми: «021 робота …», «хайлюкс запчастина …», «робота 021 …», «/job 021 …», «/part 021 …».
+ *  Для запчастини: кількість «2 шт» / «×2», ціна «4900 грн» або «4 900 грн» — за всю позицію. */
+export function parseAddCommand(raw: string, list: BotVehicle[]): AddCommand | null {
+  const text = raw.trim();
+  if (!text || text.endsWith('?')) return null;
+  const tokens = text.split(/\s+/);
+  let kind: DraftKind | null = null, kw = -1;
+  const cmd = /^\/(job|part)(?:@\w+)?$/i.exec(tokens[0]);
+  if (cmd) { kind = cmd[1].toLowerCase() === 'job' ? 'job' : 'part'; kw = 0; }
+  else {
+    for (let i = 0; i < Math.min(tokens.length, 6); i++) {
+      const n = normWord(tokens[i]);
+      if (JOB_WORDS.has(n)) { kind = 'job'; kw = i; break; }
+      if (PART_WORDS.has(n)) { kind = 'part'; kw = i; break; }
+    }
+  }
+  if (!kind) return null;
+  const vehicleQuery = kw === 0 ? (tokens[1] ?? '') : tokens.slice(0, kw).join(' ');
+  let body = (kw === 0 ? tokens.slice(2) : tokens.slice(kw + 1)).join(' ');
+  const vehicles = vehicleQuery ? findVehicles(vehicleQuery, list) : [];
+  let qty = 1, cost: number | null = null;
+  const cut = (m: RegExpExecArray) => (body.slice(0, m.index) + ' ' + body.slice(m.index + m[0].length)).trim();
+  if (kind === 'part') {
+    const q = /(?:^|\s)(\d+(?:[.,]\d+)?)\s*(?:шт|штук|штуки|штука|pcs)\.?(?=\s|$)|(?:^|\s)[x×х]\s?(\d+)(?=\s|$)/i.exec(body);
+    if (q) { qty = Number((q[1] ?? q[2]).replace(',', '.')); body = cut(q); }
+    const p = /(?:^|\s)(\d{1,3}(?:[ \u00a0]\d{3})+|\d+)(?:[.,](\d{1,2}))?\s*(?:грн|гривень|гривні|гривня|₴|uah)\.?(?=\s|$)/i.exec(body);
+    if (p) { cost = Number(p[1].replace(/[ \u00a0]/g, '') + (p[2] ? `.${p[2]}` : '')); body = cut(p); }
+  }
+  body = body.replace(/\s+/g, ' ').replace(/^[\s:—–-]+|[\s,;:—–-]+$/g, '').trim();
+  let problem: string | null = null;
+  if (!body) problem = kind === 'job' ? 'Опишіть роботу, наприклад: «021 робота Заміна ременя ГРМ».' : 'Вкажіть назву запчастини, наприклад: «021 запчастина Ремінь ГРМ 2 шт».';
+  else if (body.length > 300) problem = 'Задовгий опис — до 300 символів.';
+  else if (!(qty > 0 && qty <= 10000)) problem = 'Кількість має бути від 1 до 10 000.';
+  return { kind, vehicles, vehicleQuery, text: body, qty, cost, problem, atStart: kw === 0 };
+}
+/** Чернетка старша за добу не підтверджується: випадкове натискання на старе повідомлення нічого не додасть. */
+const DRAFT_TTL_MS = 24 * 3600_000;
+
 // ---------- тексти ----------
 function card(v: BotVehicle, now: number, role: Role, moneyLine: string | null) {
   const lines = [
@@ -281,6 +342,8 @@ const HELP_MEMBER = [
 const HELP_HEAD = [
   'Для координатора:',
   '— кнопки під карткою машини: «Без змін» і «Змінити статус»;',
+  '— «021 робота Заміна ременя ГРМ» — додати роботу (перепитаю кнопкою);',
+  '— «021 запчастина Ремінь ГРМ 2 шт 4900 грн» — додати запчастину; ціна — за всю позицію;',
   '— /reports — звіти для донорів, що чекають;',
   '— /team — хто підключений; /add ID роль ім\'я; /remove ID.',
   'Щодня о 9:00 надсилаю зведення: блокери, що давно не оновлювалось, запчастини, звіти, неоплачене.',
@@ -476,6 +539,13 @@ export function createBaseBot(store: BotStore, tg: BotTelegram, cfg: BotConfig, 
       await store.removeUser(id);
       return tg.send(chat, `Відключено: ${id}.`);
     }
+    // «021 робота …», «021 запчастина …», /job, /part
+    if (c === 'job' || c === 'part' || !c) {
+      const vs = await store.vehicles();
+      const add = parseAddCommand(raw, vs);
+      // без машини і не з початку фрази («яка робота лишилась по хайлюксу») — це скоріше питання: шукаємо машину
+      if (add && (c || add.vehicles.length || add.atStart)) return onAddCommand(chat, u, add, !!c);
+    }
     if (c) return tg.send(chat, 'Не знаю такої команди. /help — що я вмію.');
     // вільний текст — пошук машини
     const found = findVehicles(raw, await store.vehicles());
@@ -485,6 +555,77 @@ export function createBaseBot(store: BotStore, tg: BotTelegram, cfg: BotConfig, 
         found.slice(0, 8).map(v => [{ text: `${v.id} ${v.name}`.slice(0, 60), data: `car:${v.id}` }]));
     }
     return tg.send(chat, `Не знайшов машину «${esc(raw.slice(0, 60))}». Напишіть номер, наприклад 021, або /cars — список.`);
+  }
+
+  // ----- роботи й запчастини з бота -----
+  const KIND_WORD: Record<DraftKind, string> = { job: 'роботу', part: 'запчастину' };
+  function draftLine(kind: DraftKind, p: DraftPayload) {
+    return kind === 'job' ? `Робота: «${esc(p.text)}»`
+      : `Запчастина: «${esc(p.text)}» · ${p.qty} шт${p.cost != null ? ` · вартість позиції ${money(p.cost)}` : ''}`;
+  }
+  const confirmButtons = (id: number): Button[][] => [[{ text: 'Додати', data: `ad:${id}` }, { text: 'Скасувати', data: `ax:${id}` }]];
+
+  async function onAddCommand(chat: number, u: BotUser, add: AddCommand, explicit: boolean) {
+    if (u.role !== 'head') return tg.send(chat, 'Додавати роботи й запчастини може лише координатор.');
+    if (add.problem) return tg.send(chat, add.problem);
+    if (!add.vehicles.length) {
+      return tg.send(chat, add.vehicleQuery
+        ? `Не знайшов машину «${esc(add.vehicleQuery.slice(0, 40))}». Почніть з номера: «021 ${add.kind === 'job' ? 'робота Заміна ременя ГРМ' : 'запчастина Ремінь ГРМ 2 шт'}».`
+        : `Вкажіть машину: «${explicit ? `/${add.kind} 021 …` : `021 ${add.kind === 'job' ? 'робота' : 'запчастина'} …`}».`);
+    }
+    const one = add.vehicles.length === 1 ? add.vehicles[0] : null;
+    const d = await store.addDraft({ telegram_id: u.telegram_id, chat_id: chat, kind: add.kind, vehicle_id: one?.id ?? null, payload: { text: add.text, qty: add.qty, cost: add.cost } });
+    if (one) return tg.send(chat, [`Додати ${KIND_WORD[add.kind]}?`, `<b>${esc(one.name)}</b> (${esc(one.id)})`, draftLine(add.kind, d.payload)].join('\n'), confirmButtons(d.id));
+    return tg.send(chat, [`Додати ${KIND_WORD[add.kind]} — до якої машини?`, draftLine(add.kind, d.payload)].join('\n'),
+      [...add.vehicles.slice(0, 8).map(v => [{ text: `${v.id} ${v.name}`.slice(0, 60), data: `av:${d.id}:${v.id}` }]), [{ text: 'Скасувати', data: `ax:${d.id}` }]]);
+  }
+
+  async function onDraftCallback(q: NonNullable<TgUpdate['callback_query']>, u: BotUser, kind: string, parts: string[]) {
+    if (u.role !== 'head') return answer(q.id, 'Додавати роботи й запчастини може лише координатор');
+    const chat = q.message?.chat.id ?? q.from.id;
+    const id = Number(parts[1]);
+    const d = Number.isSafeInteger(id) && id > 0 ? await store.getDraft(id) : null;
+    if (!d || d.chat_id !== chat) return answer(q.id, 'Чернетку не знайдено');
+    if (d.status === 'done') return answer(q.id, 'Уже додано');
+    if (d.status === 'cancelled') return answer(q.id, 'Скасовано раніше');
+    if (d.status === 'saving') return answer(q.id, 'Уже додаю…');
+    if (clock() - Date.parse(d.created_at) > DRAFT_TTL_MS) {
+      await store.moveDraft(d.id, 'pending', { status: 'cancelled' });
+      await answer(q.id, 'Застаріло');
+      return replace(q, 'Це повідомлення старше доби — нічого не додано. Надішліть ще раз, якщо треба.');
+    }
+    if (kind === 'ax') {
+      if (!(await store.moveDraft(d.id, 'pending', { status: 'cancelled' }))) return answer(q.id, 'Уже змінено');
+      await answer(q.id, 'Скасовано');
+      return replace(q, 'Скасовано — нічого не додано.');
+    }
+    const vs = await store.vehicles();
+    if (kind === 'av') {
+      const v = vs.find(x => x.id === parts[2]);
+      if (!v) return answer(q.id, 'Цієї машини вже немає в обліку');
+      const moved = await store.moveDraft(d.id, 'pending', { vehicle_id: v.id });
+      if (!moved) return answer(q.id, 'Уже змінено');
+      await answer(q.id);
+      return replace(q, [`Додати ${KIND_WORD[d.kind]}?`, `<b>${esc(v.name)}</b> (${esc(v.id)})`, draftLine(d.kind, d.payload)].join('\n'), confirmButtons(d.id));
+    }
+    // ad — додати
+    const v = vs.find(x => x.id === d.vehicle_id);
+    if (!v) return answer(q.id, d.vehicle_id ? 'Цієї машини вже немає в обліку' : 'Спершу оберіть машину');
+    if (!(await store.moveDraft(d.id, 'pending', { status: 'saving' }))) return answer(q.id, 'Уже додаю…');
+    await answer(q.id, 'Додаю…');
+    try {
+      const r = d.kind === 'job'
+        ? await store.addJob(v.id, d.payload.text)
+        : await store.addPart(v.id, d.payload.text, d.payload.qty, d.payload.cost, localParts(clock(), tz).date);
+      await store.moveDraft(d.id, 'saving', { status: 'done', record_id: r.id });
+      const url = carUrl(v.id, d.kind === 'job' ? undefined : 'parts');
+      return replace(q, [`Додано до <b>${esc(v.name)}</b> (${esc(v.id)}):`, draftLine(d.kind, d.payload), d.kind === 'job' ? 'Статус: заплановано.' : 'Статус: замовлено.'].join('\n'),
+        url ? [[{ text: 'Відкрити картку', url }]] : undefined);
+    } catch (e) {
+      await store.moveDraft(d.id, 'saving', { status: 'pending' }).catch(() => undefined);
+      return replace(q, [`Не вдалося додати: ${esc(errText(e))}`, `<b>${esc(v.name)}</b> (${esc(v.id)})`, draftLine(d.kind, d.payload)].join('\n'),
+        [[{ text: 'Спробувати ще раз', data: `ad:${d.id}` }, { text: 'Скасувати', data: `ax:${d.id}` }]]);
+    }
   }
 
   // ----- фото -----
@@ -640,6 +781,7 @@ export function createBaseBot(store: BotStore, tg: BotTelegram, cfg: BotConfig, 
     if (!u) return tg.answerCallback(q.id, 'Вас ще не підключено до бота');
     const parts = (q.data ?? '').split(':');
     if (['us', 'uv', 'ua', 'ux'].includes(parts[0])) return onUploadCallback(q, u, parts[0], parts);
+    if (['ad', 'av', 'ax'].includes(parts[0])) return onDraftCallback(q, u, parts[0], parts);
     const [kind, a, ...rest] = parts;
     const b = rest.join(':');
     const vs = await store.vehicles();
